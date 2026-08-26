@@ -9,9 +9,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fiapx_api.config import get_settings
-from fiapx_api.db import get_session
-from fiapx_api.models import User
+from .config import get_settings
+from .db import get_session
+from .models import User
 
 bearer = HTTPBearer(auto_error=False)
 password_hasher = PasswordHasher()

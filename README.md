@@ -19,6 +19,41 @@ flowchart LR
 
 O PostgreSQL é a fonte persistente. Redis é reservado para estado efêmero de progresso/status. RabbitMQ transporta apenas contratos e referências de objetos, nunca arquivos completos.
 
+## Fluxo E2E real
+
+```mermaid
+sequenceDiagram
+    participant U as Usuário
+    participant FE as Angular
+    participant API as FastAPI
+    participant DB as PostgreSQL
+    participant S3 as MinIO
+    participant MQ as RabbitMQ
+    participant W as Video Worker
+    participant FF as FFmpeg
+
+    U->>FE: Seleciona vídeo
+    FE->>API: POST /api/v1/videos (multipart)
+    API->>DB: Cria metadata
+    API->>S3: Salva original
+    API->>MQ: video.uploaded (metadata)
+    API-->>FE: 202 QUEUED
+    MQ->>W: Entrega manual ACK
+    W->>DB: PROCESSING
+    W->>S3: Baixa original
+    W->>FF: Extrai frame_XXXXXX.jpg
+    FF-->>W: Frames reais
+    W->>W: Gera frames.zip em diretório temporário isolado
+    W->>S3: Salva resultado
+    W->>DB: COMPLETED ou FAILED
+    FE->>API: Polling GET /videos (5s enquanto ativo)
+    U->>FE: Download
+    FE->>API: GET /videos/{id}/download
+    API-->>FE: URL MinIO assinada (5 min)
+```
+
+O exchange `fiapx.events`, a fila durável `video.processing` e a DLQ `video.processing.dlq` são declarados por API e workers. Mensagens são persistentes, o worker usa `prefetch_count=1` e o ACK só ocorre após o callback terminar. Falhas transitórias são republicadas com limite de `VIDEO_PROCESSING_MAX_RETRIES`; falhas definitivas ficam `FAILED` e são publicadas em `video.processing.failed`.
+
 ## Stack
 
 - Angular 22, TypeScript, Signals, Material e Tailwind.
@@ -40,6 +75,15 @@ docker compose run --rm api alembic upgrade head
 URLs locais: API `http://localhost:8000/docs`, health `http://localhost:8000/health`, Angular `http://localhost:4200`, RabbitMQ `http://localhost:15672` e MinIO `http://localhost:9001`.
 
 Para escalar workers: `docker compose up -d --scale video-worker=5`.
+
+O teste E2E manual reproduzível é:
+
+1. Suba os serviços e rode `docker compose run --rm api alembic upgrade head`.
+2. Registre/login, envie um vídeo real com `POST /api/v1/videos` e confirme `202`/`QUEUED`.
+3. Observe `docker compose logs -f video-worker`; o status deve avançar para `PROCESSING` e `COMPLETED`.
+4. Consulte `GET /api/v1/videos/{id}/download`, baixe a URL assinada e confirme que `frames.zip` é válido.
+5. Para paralelismo, envie A/B/C e execute `docker compose up -d --scale video-worker=3`; cada job usa seu próprio diretório temporário.
+6. Para resiliência, interrompa um worker durante FFmpeg (`docker compose stop video-worker`). Com ACK manual, RabbitMQ mantém a mensagem e a redeliverá quando outro worker estiver ativo.
 
 ## Desenvolvimento e testes
 

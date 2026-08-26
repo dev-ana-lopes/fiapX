@@ -5,7 +5,7 @@ import logging
 from aio_pika import IncomingMessage, connect_robust
 from fiapx_api.config import get_settings
 from fiapx_api.messaging import EXCHANGE
-from fiapx_shared.contracts import VideoEvent
+from fiapx_shared import VideoEvent
 
 logging.basicConfig(level=get_settings().log_level)
 logger = logging.getLogger(__name__)

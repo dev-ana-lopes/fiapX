@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from fiapx_shared.contracts import VideoStatus
+from fiapx_shared import VideoStatus
 from pydantic import BaseModel, ConfigDict
 
 

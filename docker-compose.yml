@@ -48,6 +48,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_URL: amqp://fiapx:fiapx@rabbitmq:5672/
       MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: localhost:9000
       MINIO_ACCESS_KEY: fiapx
       MINIO_SECRET_KEY: fiapxsecret
       MINIO_BUCKET: videos
@@ -74,6 +75,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       RABBITMQ_URL: amqp://fiapx:fiapx@rabbitmq:5672/
       MINIO_ENDPOINT: minio:9000
+      MINIO_PUBLIC_ENDPOINT: localhost:9000
       MINIO_ACCESS_KEY: fiapx
       MINIO_SECRET_KEY: fiapxsecret
       MINIO_BUCKET: videos

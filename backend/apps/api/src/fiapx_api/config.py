@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     rabbitmq_url: str = "amqp://fiapx:fiapx@localhost:5672/"
     minio_endpoint: str = "localhost:9000"
+    minio_public_endpoint: str | None = None
     minio_access_key: str = "fiapx"
     minio_secret_key: str = "fiapxsecret"
     minio_bucket: str = "videos"
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     video_frame_interval_seconds: float = 1.0
     download_url_expiration_seconds: int = 300
     video_processing_max_retries: int = 3
+    ffmpeg_timeout_seconds: int = 3600
     app_name: str = "FIAP X API"
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

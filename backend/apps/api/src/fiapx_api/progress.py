@@ -3,7 +3,7 @@ from uuid import UUID
 
 from redis.asyncio import Redis
 
-from fiapx_api.config import get_settings
+from .config import get_settings
 
 
 class ProgressStore(Protocol):

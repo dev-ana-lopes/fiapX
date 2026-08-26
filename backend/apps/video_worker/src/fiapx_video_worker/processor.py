@@ -31,7 +31,14 @@ class VideoProcessor:
         process = await asyncio.create_subprocess_exec(
             *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await process.communicate()
+        try:
+            _, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=get_settings().ffmpeg_timeout_seconds
+            )
+        except TimeoutError as exc:
+            process.kill()
+            await process.communicate()
+            raise RuntimeError("ffmpeg processing timed out") from exc
         if process.returncode != 0:
             raise RuntimeError(f"ffmpeg failed: {stderr.decode(errors='replace')[-500:]}")
         frames = sorted(output_dir.glob("frame_*.jpg"))

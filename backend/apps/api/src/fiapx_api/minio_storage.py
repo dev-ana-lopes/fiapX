@@ -6,7 +6,7 @@ from typing import Any
 
 from minio import Minio
 
-from fiapx_api.config import get_settings
+from .config import get_settings
 
 
 class MinioStorage:
@@ -16,6 +16,12 @@ class MinioStorage:
         settings = get_settings()
         self.client = Minio(
             settings.minio_endpoint,
+            settings.minio_access_key,
+            settings.minio_secret_key,
+            secure=settings.minio_secure,
+        )
+        self.public_client = Minio(
+            settings.minio_public_endpoint or settings.minio_endpoint,
             settings.minio_access_key,
             settings.minio_secret_key,
             secure=settings.minio_secure,
@@ -74,7 +80,7 @@ class MinioStorage:
     async def presigned_get(self, object_key: str, expires_seconds: int) -> str:
         await self._ensure_bucket()
         return await asyncio.to_thread(
-            self.client.presigned_get_object,
+            self.public_client.presigned_get_object,
             self.bucket,
             object_key,
             expires=timedelta(seconds=expires_seconds),

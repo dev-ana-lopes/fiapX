@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from fiapx_shared.contracts import VideoProcessingMessage, VideoStatus
+from fiapx_shared import VideoProcessingMessage, VideoStatus
 
 
 def test_processing_message_is_strongly_typed() -> None:

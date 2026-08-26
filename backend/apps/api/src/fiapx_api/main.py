@@ -1,5 +1,6 @@
 import logging
 import mimetypes
+import re
 import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,25 +9,25 @@ from uuid import UUID, uuid4
 import jwt
 from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fiapx_shared.contracts import VideoProcessingMessage, VideoStatus
+from fiapx_shared import VideoProcessingMessage, VideoStatus
 from prometheus_client import Counter, make_asgi_app
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fiapx_api.auth import (
+from .auth import (
     find_user,
     get_current_user,
     make_token,
     password_hash,
     verify_password,
 )
-from fiapx_api.config import get_settings
-from fiapx_api.db import engine, get_session
-from fiapx_api.messaging import RabbitPublisher
-from fiapx_api.minio_storage import MinioStorage
-from fiapx_api.models import ProcessingJob, User, Video
-from fiapx_api.progress import RedisProgressStore
-from fiapx_api.schemas import (
+from .config import get_settings
+from .db import engine, get_session
+from .messaging import RabbitPublisher
+from .minio_storage import MinioStorage
+from .models import ProcessingJob, User, Video
+from .progress import RedisProgressStore
+from .schemas import (
     AuthRequest,
     AuthResponse,
     VideoCreateResponse,
@@ -130,11 +131,17 @@ async def create_video(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> VideoCreateResponse:
-    filename = Path(file.filename or "").name
+    filename = Path(re.split(r"[/\\]", file.filename or "")[-1]).name
+    filename = re.sub(r"[\x00-\x1f\x7f]", "_", filename)[:255]
     extension = Path(filename).suffix.lower()
     allowed = {item.strip().lower() for item in settings.allowed_video_extensions.split(",")}
     if not filename or extension not in allowed:
         raise HTTPException(400, "unsupported video format")
+    if file.content_type and not (
+        file.content_type.startswith("video/")
+        or file.content_type in {"application/octet-stream", "binary/octet-stream"}
+    ):
+        raise HTTPException(400, "invalid video content type")
     video_id, job_id = uuid4(), uuid4()
     object_key = f"users/{user.id}/videos/{video_id}/original/{video_id}{extension}"
     with tempfile.NamedTemporaryFile(prefix="fiapx-upload-", suffix=extension, delete=True) as temp:
@@ -145,6 +152,8 @@ async def create_video(
                 raise HTTPException(413, "file too large")
             temp.write(chunk)
         temp.flush()
+        if size == 0:
+            raise HTTPException(400, "video file is empty")
         await storage.upload(
             object_key, Path(temp.name), file.content_type or mimetypes.guess_type(filename)[0]
         )

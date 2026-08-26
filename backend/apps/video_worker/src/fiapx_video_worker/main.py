@@ -8,11 +8,11 @@ from pathlib import Path
 from aio_pika import DeliveryMode, ExchangeType, IncomingMessage, Message, connect_robust
 from fiapx_api.config import get_settings
 from fiapx_api.db import session_factory
-from fiapx_api.messaging import EXCHANGE, PROCESSING_QUEUE
+from fiapx_api.messaging import EXCHANGE, declare_video_topology
 from fiapx_api.minio_storage import MinioStorage
 from fiapx_api.models import ProcessingJob, Video
 from fiapx_api.progress import RedisProgressStore
-from fiapx_shared.contracts import VideoEvent, VideoProcessingMessage, VideoStatus
+from fiapx_shared import VideoEvent, VideoProcessingMessage, VideoStatus
 
 from fiapx_video_worker.processor import VideoProcessor, make_zip
 
@@ -159,9 +159,7 @@ async def run() -> None:
     connection = await connect_robust(get_settings().rabbitmq_url)
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=1)
-    exchange = await channel.declare_exchange(EXCHANGE, ExchangeType.TOPIC, durable=True)
-    queue = await channel.declare_queue(PROCESSING_QUEUE, durable=True)
-    await queue.bind(exchange, routing_key="video.uploaded")
+    exchange, queue = await declare_video_topology(channel)
     await queue.consume(handle, no_ack=False)
     await asyncio.Future()
 

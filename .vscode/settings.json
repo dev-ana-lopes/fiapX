@@ -1,0 +1,14 @@
+{
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/backend/apps/api/src",
+    "${workspaceFolder}/backend/apps/video_worker/src",
+    "${workspaceFolder}/backend/apps/notification_worker/src",
+    "${workspaceFolder}/backend/packages/shared",
+    "${workspaceFolder}/apps/api/src",
+    "${workspaceFolder}/apps/video_worker/src",
+    "${workspaceFolder}/apps/notification_worker/src",
+    "${workspaceFolder}/packages/shared"
+  ],
+  "python.analysis.typeCheckingMode": "strict",
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/Scripts/python.exe"
+}

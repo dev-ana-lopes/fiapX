@@ -1,0 +1,12 @@
+{
+  "include": ["apps", "packages", "migrations", "tests"],
+  "extraPaths": [
+    "apps/api/src",
+    "apps/video_worker/src",
+    "apps/notification_worker/src",
+    "packages/shared"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "typeCheckingMode": "strict"
+}

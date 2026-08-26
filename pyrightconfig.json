@@ -1,0 +1,17 @@
+{
+  "include": ["backend/apps", "backend/packages", "backend/migrations", "backend/tests"],
+  "executionEnvironments": [
+    {
+      "root": "backend",
+      "extraPaths": [
+        "apps/api/src",
+        "apps/video_worker/src",
+        "apps/notification_worker/src",
+        "packages/shared"
+      ]
+    }
+  ],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "typeCheckingMode": "strict"
+}
