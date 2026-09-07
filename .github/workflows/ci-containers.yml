@@ -1,0 +1,72 @@
+name: Containers
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['backend/**', 'frontend/**', 'docker-compose.yml', '.dockerignore', '.github/workflows/ci-containers.yml']
+  pull_request:
+    paths: ['backend/**', 'frontend/**', 'docker-compose.yml', '.dockerignore', '.github/workflows/ci-containers.yml']
+
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  containers:
+    name: containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          - name: api
+            file: backend/Dockerfile
+            context: backend
+          - name: video-worker
+            file: backend/Dockerfile
+            context: backend
+          - name: notification-worker
+            file: backend/Dockerfile
+            context: backend
+          - name: frontend
+            file: frontend/Dockerfile
+            context: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose
+        run: docker compose config --quiet
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          load: true
+          tags: fiapx/${{ matrix.name }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: fiapx/${{ matrix.name }}:${{ github.sha }}
+          format: table
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.17.0
+        with:
+          image: fiapx/${{ matrix.name }}:${{ github.sha }}
+          format: cyclonedx-json
+          artifact-name: sbom-${{ matrix.name }}.cdx.json
+          output-file: sbom-${{ matrix.name }}.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.cdx.json
+          retention-days: 14

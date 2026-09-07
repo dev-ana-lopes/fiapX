@@ -1,0 +1,8 @@
+name: FIAP X CodeQL
+paths:
+  - backend/apps
+  - backend/packages
+  - frontend/src
+paths-ignore:
+  - '**/node_modules/**'
+  - '**/dist/**'

@@ -6,10 +6,17 @@ import { AuthService } from '../auth/auth.service';
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
   const auth = inject(AuthService);
   const token = auth.getToken();
-  return next(token ? request.clone({setHeaders: {Authorization: `Bearer ${token}`}}) : request).pipe(
+  const authenticatedRequest = request.clone({
+    withCredentials: true,
+    ...(token ? {setHeaders: {Authorization: `Bearer ${token}`}} : {}),
+  });
+  return next(authenticatedRequest).pipe(
     catchError((error: HttpErrorResponse) => {
-      if (error.status !== 401 || request.url.includes('/auth/refresh') || !localStorage.getItem('fiapx_refresh_token')) return throwError(() => error);
-      return auth.refresh().pipe(switchMap(() => next(request)), catchError((refreshError) => { auth.clear(); return throwError(() => refreshError); }));
+      if (error.status !== 401 || request.url.includes('/auth/refresh') || !token) return throwError(() => error);
+      return auth.refresh().pipe(switchMap(() => {
+        const refreshed = auth.getToken();
+        return next(refreshed ? request.clone({withCredentials: true, setHeaders: {Authorization: `Bearer ${refreshed}`}}) : request);
+      }), catchError((refreshError) => { auth.clear(); return throwError(() => refreshError); }));
     })
   );
 };

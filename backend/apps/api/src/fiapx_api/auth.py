@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -11,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import get_settings
 from .db import get_session
-from .models import User
+from .models import AuthSession, User
 
 bearer = HTTPBearer(auto_error=False)
 password_hasher = PasswordHasher()
@@ -29,6 +31,26 @@ def make_token(user_id: UUID, token_type: str = "access") -> str:
         settings.jwt_secret,
         algorithm=settings.jwt_algorithm,
     )
+
+
+def new_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def create_refresh_session(session: AsyncSession, user_id: UUID) -> tuple[str, AuthSession]:
+    token = new_refresh_token()
+    record = AuthSession(
+        user_id=user_id,
+        token_hash=hash_refresh_token(token),
+        expires_at=datetime.now(UTC) + timedelta(days=get_settings().refresh_token_expire_days),
+    )
+    session.add(record)
+    await session.flush()
+    return token, record
 
 
 def _user_id(token: str) -> UUID:

@@ -52,7 +52,7 @@ class MinioStorage:
             self.bucket,
             object_key,
             str(file_path),
-            content_type=content_type,
+            content_type=content_type or "application/octet-stream",
         )
 
     async def get(self, object_key: str, destination: Path) -> None:
@@ -62,6 +62,17 @@ class MinioStorage:
         finally:
             response.close()
             response.release_conn()
+
+    async def read(self, object_key: str) -> bytes:
+        def read_object() -> bytes:
+            response: Any = self.client.get_object(self.bucket, object_key)
+            try:
+                return bytes(response.read())
+            finally:
+                response.close()
+                response.release_conn()
+
+        return await asyncio.to_thread(read_object)
 
     async def download(self, object_key: str, destination: Path) -> Path:
         await self.get(object_key, destination)
@@ -85,3 +96,14 @@ class MinioStorage:
             object_key,
             expires=timedelta(seconds=expires_seconds),
         )
+
+    async def list(self, prefix: str = "") -> list[str]:
+        await self._ensure_bucket()
+
+        def list_objects() -> list[str]:
+            return [
+                item.object_name
+                for item in self.client.list_objects(self.bucket, prefix=prefix, recursive=True)
+            ]
+
+        return await asyncio.to_thread(list_objects)

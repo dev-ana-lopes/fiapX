@@ -1,17 +1,44 @@
 name: Backend CI
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['backend/**', '.github/workflows/backend-ci.yml', 'docker-compose.yml']
+  pull_request:
+    paths: ['backend/**', '.github/workflows/backend-ci.yml', 'docker-compose.yml']
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   backend:
+    name: backend-ci
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults: {run: {working-directory: backend}}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-        with: {version: latest}
+        with: {version: '0.8.14', enable-cache: true}
       - uses: actions/setup-python@v5
         with: {python-version: '3.14'}
-      - run: uv sync
+      - run: uv sync --frozen
+      - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run mypy apps packages
-      - run: uv run pytest
-
+      - run: uv run alembic heads
+      - run: uv run pytest --cov=apps --cov=packages --cov-fail-under=20 --cov-report=term-missing --cov-report=xml --junitxml=test-results.xml --timeout=30
+      - name: Upload backend reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-reports
+          path: |
+            backend/coverage.xml
+            backend/test-results.xml
+          if-no-files-found: ignore
+          retention-days: 14

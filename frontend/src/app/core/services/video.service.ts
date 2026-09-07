@@ -15,5 +15,5 @@ export class VideoService {
     const data = new FormData(); data.append('file', file); return this.http.post<VideoCreateResponse>(`${API_BASE_URL}/videos`, data, {observe: 'events', reportProgress: true});
   }
   get(id: string): Observable<Video> { return this.http.get<VideoResponseDto>(`${API_BASE_URL}/videos/${id}`).pipe(map(mapVideoDto)); }
-  download(id: string): Observable<string> { return this.http.get<{url: string}>(`${API_BASE_URL}/videos/${id}/download`).pipe(map((result) => result.url)); }
+  download(id: string): Observable<Blob> { return this.http.get(`${API_BASE_URL}/videos/${id}/download/file`, {responseType: 'blob'}); }
 }

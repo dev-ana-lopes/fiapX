@@ -24,7 +24,8 @@ class VideoProcessingMessage(BaseModel):
     video_id: UUID
     user_id: UUID | None = None
     object_key: str
-    attempt: int = 0
+    attempt: int = 1
+    correlation_id: str | None = None
 
 
 class VideoEvent(BaseModel):
@@ -38,3 +39,4 @@ class VideoEvent(BaseModel):
     user_id: UUID | None = None
     status: VideoStatus
     error_message: str | None = None
+    correlation_id: str | None = None

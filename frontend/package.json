@@ -2,36 +2,39 @@
   "name": "fiapx-frontend",
   "version": "0.1.0",
   "private": true,
-  "engines": {"node": ">=22.22.3"},
+  "engines": {
+    "node": ">=22.22.3"
+  },
   "scripts": {
     "start": "ng serve --host 0.0.0.0",
     "build": "ng build",
     "lint": "tsc -p tsconfig.app.json --noEmit",
-    "test": "node --test",
+    "test": "vitest run",
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@angular/animations": "22.0.0",
-    "@angular/common": "22.0.0",
-    "@angular/compiler": "22.0.0",
-    "@angular/core": "22.0.0",
-    "@angular/forms": "22.0.0",
-    "@angular/material": "22.0.0",
-    "@angular/platform-browser": "22.0.0",
-    "@angular/platform-browser-dynamic": "22.0.0",
-    "@angular/router": "22.0.0",
+    "@angular/animations": "22.1.5",
+    "@angular/common": "22.1.5",
+    "@angular/compiler": "22.1.5",
+    "@angular/core": "22.1.5",
+    "@angular/forms": "22.1.5",
+    "@angular/material": "22.1.5",
+    "@angular/platform-browser": "22.1.5",
+    "@angular/platform-browser-dynamic": "22.1.5",
+    "@angular/router": "22.1.5",
     "rxjs": "^7.8.2",
     "tslib": "^2.8.1",
     "zone.js": "~0.15.1"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "22.0.0",
-    "@angular/cli": "22.0.0",
-    "@angular/compiler-cli": "22.0.0",
+    "@angular-devkit/build-angular": "22.1.7",
+    "@angular/cli": "22.1.7",
+    "@angular/compiler-cli": "22.1.5",
     "@playwright/test": "^1.54.2",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
-    "typescript": "~6.0.0"
+    "typescript": "~6.0.0",
+    "vitest": "^4.1.11"
   }
 }

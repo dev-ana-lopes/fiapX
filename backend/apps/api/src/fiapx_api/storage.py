@@ -13,6 +13,8 @@ class Storage(Protocol):
 
     async def put(self, object_key: str, content: bytes) -> None: ...
     async def get(self, object_key: str, destination: Path) -> None: ...
+    async def read(self, object_key: str) -> bytes: ...
+    async def list(self, prefix: str = "") -> list[str]: ...
 
 
 class InMemoryStorage:
@@ -32,6 +34,9 @@ class InMemoryStorage:
     async def get(self, object_key: str, destination: Path) -> None:
         destination.write_bytes(self.objects[object_key])
 
+    async def read(self, object_key: str) -> bytes:
+        return self.objects[object_key]
+
     async def download(self, object_key: str, destination: Path) -> Path:
         await self.get(object_key, destination)
         return destination
@@ -44,3 +49,6 @@ class InMemoryStorage:
 
     async def presigned_get(self, object_key: str, expires_seconds: int) -> str:
         return f"memory://{object_key}"
+
+    async def list(self, prefix: str = "") -> list[str]:
+        return sorted(key for key in self.objects if key.startswith(prefix))

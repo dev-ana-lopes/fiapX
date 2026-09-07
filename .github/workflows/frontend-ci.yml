@@ -1,14 +1,54 @@
 name: Frontend CI
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [main, develop]
+    paths: ['frontend/**', '.github/workflows/frontend-ci.yml', 'docker-compose.yml']
+  pull_request:
+    paths: ['frontend/**', '.github/workflows/frontend-ci.yml', 'docker-compose.yml']
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   frontend:
+    name: frontend-ci
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults: {run: {working-directory: frontend}}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json}
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
-      - run: npm run e2e -- --list
-
+      - run: npx playwright install --with-deps chromium
+      - name: Prepare runtime fixtures
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -f lavfi -i color=c=blue:s=128x128:d=2 -c:v libx264 -pix_fmt yuv420p -y /tmp/fiapx-demo.mp4
+          printf 'not a video' > /tmp/fiapx-invalid.mp4
+      - name: Start integration stack
+        working-directory: .
+        run: |
+          docker compose up -d --build api video-worker notification-worker frontend
+          docker compose exec -T api alembic upgrade head
+          curl --retry 30 --retry-delay 1 --fail http://localhost:8000/health
+          curl --retry 30 --retry-delay 1 --fail http://localhost:4200/
+      - name: Run E2E
+        env:
+          FIAPX_E2E_VIDEO: /tmp/fiapx-demo.mp4
+          FIAPX_E2E_INVALID_VIDEO: /tmp/fiapx-invalid.mp4
+        run: npm run e2e
+      - name: Stop integration stack
+        if: always()
+        working-directory: .
+        run: docker compose down -v

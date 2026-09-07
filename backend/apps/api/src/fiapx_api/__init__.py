@@ -1,7 +1,7 @@
 """FIAP X HTTP API package and public application contracts."""
 
 from .config import Settings, get_settings
-from .models import Base, Notification, ProcessingJob, User, Video
+from .models import AuthSession, Base, Notification, OutboxEvent, ProcessingJob, User, Video
 from .schemas import (
     AuthRequest,
     AuthResponse,
@@ -13,9 +13,11 @@ from .schemas import (
 __all__ = [
     "AuthRequest",
     "AuthResponse",
+    "AuthSession",
     "Base",
     "Notification",
     "ProcessingJob",
+    "OutboxEvent",
     "Settings",
     "User",
     "Video",

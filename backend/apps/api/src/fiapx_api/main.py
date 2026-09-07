@@ -1,13 +1,25 @@
+import asyncio
 import logging
 import mimetypes
 import re
 import tempfile
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
-import jwt
-from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fiapx_shared import VideoProcessingMessage, VideoStatus
 from prometheus_client import Counter, make_asgi_app
@@ -15,21 +27,27 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .auth import (
+    create_refresh_session,
     find_user,
     get_current_user,
+    hash_refresh_token,
     make_token,
     password_hash,
     verify_password,
 )
 from .config import get_settings
-from .db import engine, get_session
-from .messaging import RabbitPublisher
+from .db import engine, get_session, session_factory
+from .messaging import declare_video_topology, publish_raw
 from .minio_storage import MinioStorage
-from .models import ProcessingJob, User, Video
+from .models import AuthSession, Notification, OutboxEvent, ProcessingJob, User, Video
 from .progress import RedisProgressStore
 from .schemas import (
     AuthRequest,
     AuthResponse,
+    CurrentUserResponse,
+    NotificationPage,
+    NotificationResponse,
+    RefreshRequest,
     VideoCreateResponse,
     VideoPage,
     VideoResponse,
@@ -39,20 +57,111 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 storage = MinioStorage()
 videos_received = Counter("videos_received_total", "Videos accepted by the API")
+REFRESH_COOKIE = "fiapx_refresh"
+
+
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        REFRESH_COOKIE,
+        token,
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        httponly=True,
+        secure=settings.app_env.lower() not in {"local", "test"},
+        samesite="lax",
+        path="/api/v1/auth",
+    )
+
+
+async def _auth_response(session: AsyncSession, user_id: UUID, response: Response) -> AuthResponse:
+    refresh_token, _ = await create_refresh_session(session, user_id)
+    await session.commit()
+    _set_refresh_cookie(response, refresh_token)
+    return AuthResponse(access_token=make_token(user_id), refresh_token=None)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    publisher_task = asyncio.create_task(outbox_publisher())
     yield
+    publisher_task.cancel()
+    await asyncio.gather(publisher_task, return_exceptions=True)
     await engine.dispose()
 
 
+async def outbox_publisher() -> None:
+    while True:
+        try:
+            from aio_pika import connect_robust
+
+            connection = await connect_robust(settings.rabbitmq_url)
+            async with connection:
+                channel = await connection.channel(publisher_confirms=True)
+                exchange, _ = await declare_video_topology(channel)
+                while True:
+                    published = await publish_pending_outbox(channel, exchange)
+                    if not published:
+                        await asyncio.sleep(settings.outbox_poll_interval_ms / 1000)
+
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("outbox.publisher.unavailable")
+            await asyncio.sleep(settings.outbox_poll_interval_ms / 1000)
+
+
+async def publish_pending_outbox(channel: object, exchange: object) -> int:
+    """Claim and publish one batch; row locks prevent duplicate concurrent claims."""
+    async with session_factory() as session:
+        events = list(
+            (
+                await session.execute(
+                    select(OutboxEvent)
+                    .where(OutboxEvent.published_at.is_(None))
+                    .order_by(OutboxEvent.created_at)
+                    .with_for_update(skip_locked=True)
+                    .limit(settings.outbox_batch_size)
+                )
+            ).scalars()
+        )
+        published_count = 0
+        for event in events:
+            try:
+                await publish_raw(
+                    channel,
+                    exchange,
+                    event.payload.encode(),
+                    event.event_type,
+                    str(event.id),
+                )
+                event.published_at = datetime.now(UTC)
+                published_count += 1
+            except Exception as exc:
+                event.attempts += 1
+                event.last_error = str(exc)[:500]
+        await session.commit()
+        return published_count
+
+
 app = FastAPI(title="FIAP X API", version="0.2.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def correlation_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    correlation_id = request.headers.get("X-Correlation-ID") or str(uuid4())
+    request.state.correlation_id = correlation_id
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[item.strip() for item in settings.cors_origins.split(",") if item.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 app.mount("/metrics", make_asgi_app())
 api = APIRouter(prefix="/api/v1")
@@ -74,7 +183,11 @@ async def ready(session: AsyncSession = Depends(get_session)) -> dict[str, str]:
 
 
 @api.post("/auth/register", response_model=AuthResponse, status_code=201, tags=["Auth"])
-async def register(data: AuthRequest, session: AsyncSession = Depends(get_session)) -> AuthResponse:
+async def register(
+    data: AuthRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> AuthResponse:
     if await find_user(session, data.email):
         raise HTTPException(409, "email already registered")
     user = User(
@@ -83,41 +196,82 @@ async def register(data: AuthRequest, session: AsyncSession = Depends(get_sessio
         password_hash=password_hash(data.password),
     )
     session.add(user)
-    await session.commit()
-    return AuthResponse(
-        access_token=make_token(user.id), refresh_token=make_token(user.id, "refresh")
-    )
+    await session.flush()
+    return await _auth_response(session, user.id, response)
 
 
 @api.post("/auth/login", response_model=AuthResponse, tags=["Auth"])
-async def login(data: AuthRequest, session: AsyncSession = Depends(get_session)) -> AuthResponse:
+async def login(
+    data: AuthRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+) -> AuthResponse:
     user = await find_user(session, data.email)
     if user is None or not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "invalid credentials")
-    return AuthResponse(
-        access_token=make_token(user.id), refresh_token=make_token(user.id, "refresh")
-    )
+    return await _auth_response(session, user.id, response)
 
 
 @api.post("/auth/refresh", response_model=AuthResponse, tags=["Auth"])
-async def refresh(data: dict[str, str]) -> AuthResponse:
-    try:
-        payload = jwt.decode(
-            data["refresh_token"], settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+async def refresh(
+    request: Request,
+    response: Response,
+    data: RefreshRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> AuthResponse:
+    raw_token = request.cookies.get(REFRESH_COOKIE) or (data.refresh_token if data else None)
+    if not raw_token:
+        raise HTTPException(401, "invalid refresh token")
+    auth_session = (
+        await session.execute(
+            select(AuthSession)
+            .where(AuthSession.token_hash == hash_refresh_token(raw_token))
+            .with_for_update()
         )
-        if payload.get("type") != "refresh":
-            raise ValueError
-        user_id = UUID(str(payload["sub"]))
-    except (KeyError, ValueError, jwt.PyJWTError) as exc:
-        raise HTTPException(401, "invalid refresh token") from exc
-    return AuthResponse(
-        access_token=make_token(user_id), refresh_token=make_token(user_id, "refresh")
-    )
+    ).scalar_one_or_none()
+    now = datetime.now(UTC)
+    if (
+        auth_session is None
+        or auth_session.revoked_at is not None
+        or auth_session.expires_at <= now
+    ):
+        raise HTTPException(401, "invalid refresh token")
+    user = await session.get(User, auth_session.user_id)
+    if user is None:
+        auth_session.revoked_at = now
+        await session.commit()
+        raise HTTPException(401, "invalid refresh token")
+    auth_session.revoked_at = now
+    auth_session.last_used_at = now
+    new_token, _ = await create_refresh_session(session, user.id)
+    await session.commit()
+    _set_refresh_cookie(response, new_token)
+    return AuthResponse(access_token=make_token(user.id), refresh_token=None)
 
 
 @api.post("/auth/logout", status_code=204, tags=["Auth"])
-async def logout() -> None:
-    return None
+async def logout(
+    request: Request,
+    response: Response,
+    data: RefreshRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    raw_token = request.cookies.get(REFRESH_COOKIE) or (data.refresh_token if data else None)
+    if raw_token:
+        auth_session = (
+            await session.execute(
+                select(AuthSession).where(AuthSession.token_hash == hash_refresh_token(raw_token))
+            )
+        ).scalar_one_or_none()
+        if auth_session and auth_session.revoked_at is None:
+            auth_session.revoked_at = datetime.now(UTC)
+            await session.commit()
+    response.delete_cookie(REFRESH_COOKIE, path="/api/v1/auth")
+
+
+@api.get("/auth/me", response_model=CurrentUserResponse, tags=["Auth"])
+async def current_user(user: User = Depends(get_current_user)) -> CurrentUserResponse:
+    return CurrentUserResponse(id=user.id, name=user.name, email=user.email)
 
 
 @api.post(
@@ -127,6 +281,7 @@ async def logout() -> None:
     tags=["Videos"],
 )
 async def create_video(
+    request: Request,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
@@ -166,27 +321,31 @@ async def create_video(
         object_key=object_key,
         status=VideoStatus.QUEUED,
     )
-    session.add_all([video, ProcessingJob(id=job_id, video_id=video_id, status=VideoStatus.QUEUED)])
+    message = VideoProcessingMessage(
+        job_id=job_id,
+        video_id=video_id,
+        user_id=user.id,
+        object_key=object_key,
+        attempt=1,
+        correlation_id=request.state.correlation_id,
+    )
+    session.add_all(
+        [
+            video,
+            ProcessingJob(id=job_id, video_id=video_id, status=VideoStatus.QUEUED),
+            OutboxEvent(
+                event_type="video.uploaded",
+                aggregate_id=video_id,
+                payload=message.model_dump_json(),
+            ),
+        ]
+    )
     try:
         await session.commit()
     except Exception:
         await session.rollback()
         await storage.delete(object_key)
         raise
-    try:
-        await RabbitPublisher().publish(
-            VideoProcessingMessage(
-                job_id=job_id, video_id=video_id, user_id=user.id, object_key=object_key, attempt=1
-            )
-        )
-    except Exception as exc:
-        video.status, video.error_message = (
-            VideoStatus.FAILED,
-            "não foi possível enfileirar o vídeo",
-        )
-        await session.commit()
-        logger.exception("video_event_publish_failed", extra={"video_id": str(video_id)})
-        raise HTTPException(503, "processing queue unavailable") from exc
     videos_received.inc()
     return VideoCreateResponse(
         id=video_id,
@@ -196,11 +355,16 @@ async def create_video(
     )
 
 
-def _response(video: Video, progress: int | None = None) -> VideoResponse:
+def _response(
+    video: Video, progress: int | None = None, progress_stage: str | None = None
+) -> VideoResponse:
     return VideoResponse.model_validate(
         {
             **video.__dict__,
             "progress": progress if progress is not None else video.progress,
+            "progress_stage": (
+                progress_stage if progress_stage is not None else video.progress_stage
+            ),
             "download_available": video.status == VideoStatus.COMPLETED
             and bool(video.result_object_key),
         }
@@ -251,9 +415,11 @@ async def get_video(
     try:
         value = await redis.client.get(f"video:{video.id}:progress")
         progress = int(value) if value is not None else None
+        raw_stage = await redis.client.get(f"video:{video.id}:stage")
+        progress_stage = raw_stage.decode() if isinstance(raw_stage, bytes) else raw_stage
     finally:
         await redis.client.aclose()
-    return _response(video, progress)
+    return _response(video, progress, progress_stage)
 
 
 @api.get("/videos/{video_id}/download", tags=["Videos"])
@@ -267,11 +433,26 @@ async def download_video(
     ).scalar_one_or_none()
     if video is None or video.status != VideoStatus.COMPLETED or not video.result_object_key:
         raise HTTPException(404, "download not available")
-    return {
-        "url": await storage.presigned_get(
-            video.result_object_key, settings.download_url_expiration_seconds
-        )
-    }
+    return {"url": f"/api/v1/videos/{video_id}/download/file"}
+
+
+@api.get("/videos/{video_id}/download/file", tags=["Videos"])
+async def download_video_file(
+    video_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> Response:
+    video = (
+        await session.execute(select(Video).where(Video.id == video_id, Video.user_id == user.id))
+    ).scalar_one_or_none()
+    if video is None or video.status != VideoStatus.COMPLETED or not video.result_object_key:
+        raise HTTPException(404, "download not available")
+    content = await storage.read(video.result_object_key)
+    return Response(
+        content=content,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="frames.zip"'},
+    )
 
 
 @api.delete("/videos/{video_id}", status_code=204, tags=["Videos"])
@@ -289,6 +470,69 @@ async def delete_video(
     if video.result_object_key:
         await storage.delete(video.result_object_key)
     await session.delete(video)
+    await session.commit()
+
+
+@api.get("/notifications", response_model=NotificationPage, tags=["Notifications"])
+async def list_notifications(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> NotificationPage:
+    result = await session.execute(
+        select(Notification)
+        .where(Notification.user_id == user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(100)
+    )
+    unread_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.user_id == user.id, Notification.status == "PENDING")
+        )
+    ).scalar_one()
+    return NotificationPage(
+        items=[NotificationResponse.model_validate(item) for item in result.scalars()],
+        unread_count=unread_count,
+    )
+
+
+@api.patch("/notifications/{notification_id}/read", status_code=204, tags=["Notifications"])
+async def mark_notification_read(
+    notification_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    notification = (
+        await session.execute(
+            select(Notification).where(
+                Notification.id == notification_id, Notification.user_id == user.id
+            )
+        )
+    ).scalar_one_or_none()
+    if notification is None:
+        raise HTTPException(404, "notification not found")
+    notification.status = "READ"
+    notification.read_at = datetime.now(UTC)
+    await session.commit()
+
+
+@api.post("/notifications/read-all", status_code=204, tags=["Notifications"])
+async def mark_all_notifications_read(
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    notifications = (
+        await session.execute(
+            select(Notification).where(
+                Notification.user_id == user.id, Notification.status == "PENDING"
+            )
+        )
+    ).scalars()
+    now = datetime.now(UTC)
+    for notification in notifications:
+        notification.status = "READ"
+        notification.read_at = now
     await session.commit()
 
 

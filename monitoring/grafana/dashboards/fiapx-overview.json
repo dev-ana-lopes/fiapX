@@ -1,0 +1,16 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {"title":"Videos accepted","type":"stat","gridPos":{"h":8,"w":12,"x":0,"y":0},"targets":[{"expr":"increase(videos_received_total[1h])"}]},
+    {"title":"Processing completed","type":"stat","gridPos":{"h":8,"w":12,"x":12,"y":0},"targets":[{"expr":"increase(fiapx_video_processing_completed_total[1h])"}]},
+    {"title":"RabbitMQ queue depth","type":"timeseries","gridPos":{"h":8,"w":12,"x":0,"y":8},"targets":[{"expr":"rabbitmq_queue_messages_ready"}]},
+    {"title":"Processing retries","type":"timeseries","gridPos":{"h":8,"w":12,"x":12,"y":8},"targets":[{"expr":"rate(fiapx_video_processing_retries_total[5m])"}]},
+    {"title":"DLQ messages","type":"stat","gridPos":{"h":8,"w":12,"x":0,"y":16},"targets":[{"expr":"rabbitmq_queue_messages{queue=\"video.processing.dlq\"}"}]},
+    {"title":"Processing duration P95","type":"timeseries","gridPos":{"h":8,"w":12,"x":12,"y":16},"targets":[{"expr":"histogram_quantile(0.95, rate(fiapx_video_processing_duration_seconds_bucket[5m]))"}]}
+  ],
+  "schemaVersion": 39,
+  "title": "FIAP X - Overview",
+  "time": {"from":"now-6h","to":"now"},
+  "version": 1
+}

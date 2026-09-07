@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["mypy>=1.17.1", "pytest>=8.4.1", "pytest-asyncio>=1.1.0", "ruff>=0.12.9"]
+dev = ["mypy>=1.17.1", "pip-audit>=2.9.0", "pytest>=8.4.1", "pytest-asyncio>=1.1.0", "pytest-cov>=6.2.1", "pytest-timeout>=2.4.0", "ruff>=0.12.9"]
 
 [tool.ruff]
 line-length = 100
@@ -36,6 +36,7 @@ ignore = ["B008"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["apps/api/src", "apps/video_worker/src", "apps/notification_worker/src", "packages/shared"]
+markers = ["integration: requires a running FIAP X API and its dependencies"]
 
 [tool.mypy]
 python_version = "3.14"

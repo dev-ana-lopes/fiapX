@@ -49,10 +49,10 @@ sequenceDiagram
     FE->>API: Polling GET /videos (5s enquanto ativo)
     U->>FE: Download
     FE->>API: GET /videos/{id}/download
-    API-->>FE: URL MinIO assinada (5 min)
+    API-->>FE: ZIP autenticado via API
 ```
 
-O exchange `fiapx.events`, a fila durável `video.processing` e a DLQ `video.processing.dlq` são declarados por API e workers. Mensagens são persistentes, o worker usa `prefetch_count=1` e o ACK só ocorre após o callback terminar. Falhas transitórias são republicadas com limite de `VIDEO_PROCESSING_MAX_RETRIES`; falhas definitivas ficam `FAILED` e são publicadas em `video.processing.failed`.
+O exchange `fiapx.events`, as filas duráveis `video.processing`, `video.processing.retry` e `video.processing.dlq` são declarados por API e workers. Mensagens são persistentes, publisher confirms são habilitados e o worker usa `prefetch_count=1`. Falhas transitórias vão para retry com TTL e backoff/jitter; falhas definitivas ficam `FAILED` e vão para a DLQ. O outbox transacional fecha a janela entre commit PostgreSQL e publicação RabbitMQ.
 
 ## Stack
 
@@ -72,16 +72,25 @@ docker compose up -d --build
 docker compose run --rm api alembic upgrade head
 ```
 
-URLs locais: API `http://localhost:8000/docs`, health `http://localhost:8000/health`, Angular `http://localhost:4200`, RabbitMQ `http://localhost:15672` e MinIO `http://localhost:9001`.
+No Windows, o Docker desta validação é executado pelo WSL:
 
-Para escalar workers: `docker compose up -d --scale video-worker=5`.
+```powershell
+wsl -d Ubuntu-22.04 -- docker compose up -d --build
+wsl -d Ubuntu-22.04 -- docker compose exec -T api alembic upgrade head
+```
+
+O WSL usa `8.8.8.8` como DNS em `/etc/resolv.conf`; confirme a conectividade com `wsl getent ahostsv4 registry-1.docker.io` antes do build.
+
+URLs locais: API `http://localhost:8000/docs`, health `http://localhost:8000/health`, Angular `http://localhost:4200`, RabbitMQ `http://localhost:15672`, MinIO `http://localhost:9001`, Prometheus `http://localhost:9090` e Grafana `http://localhost:3000`.
+
+Para escalar workers: `docker compose up -d --scale video-worker=5`. Para verificar a DLQ: `docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready messages_unacknowledged`.
 
 O teste E2E manual reproduzível é:
 
 1. Suba os serviços e rode `docker compose run --rm api alembic upgrade head`.
 2. Registre/login, envie um vídeo real com `POST /api/v1/videos` e confirme `202`/`QUEUED`.
 3. Observe `docker compose logs -f video-worker`; o status deve avançar para `PROCESSING` e `COMPLETED`.
-4. Consulte `GET /api/v1/videos/{id}/download`, baixe a URL assinada e confirme que `frames.zip` é válido.
+4. Consulte `GET /api/v1/videos/{id}/download/file` com o Bearer token e confirme que `frames.zip` é válido.
 5. Para paralelismo, envie A/B/C e execute `docker compose up -d --scale video-worker=3`; cada job usa seu próprio diretório temporário.
 6. Para resiliência, interrompa um worker durante FFmpeg (`docker compose stop video-worker`). Com ACK manual, RabbitMQ mantém a mensagem e a redeliverá quando outro worker estiver ativo.
 
@@ -102,7 +111,7 @@ npm run build
 npm run e2e
 ```
 
-O frontend usa `/api` como base URL (o proxy reverso do ambiente aponta para a API). O fluxo autenticado é login/register → token Bearer persistido localmente → Dashboard com `GET /videos`; uploads usam `POST /videos`, a atualização de vídeos ativos ocorre em um polling único de 5 segundos, detalhes usam `GET /videos/{id}` e downloads usam a URL presigned de `GET /videos/{id}/download`. O Playwright inicia o servidor Angular automaticamente. A rota `/notifications` continua com dados locais porque o backend atual ainda não expõe endpoint de notificações.
+O frontend usa `/api` como base URL (o proxy reverso do ambiente aponta para a API). O fluxo autenticado é login/register → access token Bearer e refresh token em cookie HttpOnly → Dashboard com `GET /videos`; uploads usam `POST /videos`, a atualização de vídeos ativos ocorre em polling, e cada vídeo expõe percentual e etapa (`Baixando vídeo`, `Validando vídeo`, `Extraindo frames`, `Compactando ZIP`, `Enviando resultado` e `Concluído`). Detalhes usam `GET /videos/{id}` e downloads usam `GET /videos/{id}/download/file` como resposta ZIP autenticada. A tela `/notifications` consulta `GET /notifications` e permite marcar uma ou todas como lidas.
 
 No Windows, os mesmos comandos podem ser executados dentro do PowerShell; o Makefile oferece atalhos em ambientes com GNU Make.
 
@@ -114,9 +123,9 @@ Estados: `QUEUED`, `PROCESSING`, `COMPLETED` e `FAILED`. Erros são tentados at�
 
 ## Endpoints
 
-`POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `GET /health`, `GET /ready`, `GET /metrics`, `POST /api/v1/videos`, `GET /api/v1/videos`, `GET /api/v1/videos/{id}` e `GET /api/v1/videos/{id}/download`. Os endpoints de vídeo exigem `Authorization: Bearer <access_token>`.
+`POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `GET /health`, `GET /ready`, `GET /metrics`, `POST /api/v1/videos`, `GET /api/v1/videos`, `GET /api/v1/videos/{id}`, `GET /api/v1/videos/{id}/download`, `GET /api/v1/videos/{id}/download/file`, `GET /api/v1/notifications`, `PATCH /api/v1/notifications/{id}/read` e `POST /api/v1/notifications/read-all`. Os endpoints de vídeo e notificações exigem `Authorization: Bearer <access_token>`.
 
-O upload aceita `.mp4`, `.mov`, `.avi`, `.mkv` e `.webm`, com limite configurável em `MAX_UPLOAD_SIZE_BYTES`. A URL de download é presigned e expira conforme `DOWNLOAD_URL_EXPIRATION_SECONDS`.
+O upload aceita `.mp4`, `.mov`, `.avi`, `.mkv` e `.webm`, com limite configurável em `MAX_UPLOAD_SIZE_BYTES`. O download retorna o ZIP autenticado diretamente pela API.
 
 ## Exemplo de uso
 
@@ -128,9 +137,48 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/videos/{video_id}
 curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/videos/{video_id}/download
 ```
 
+## Resiliência e operação
+
+O lease `video:{video_id}:processing-lease` tem TTL e renovação pelo worker; a liberação é protegida por ownership. A transição para `PROCESSING` é um `UPDATE ... WHERE status=QUEUED`, portanto dois workers não vencem a mesma corrida. O resultado usa chave determinística `users/{user_id}/videos/{video_id}/result/frames.zip`. Logs devem ser filtrados por `video_id`, `worker_id` e `attempt`; eventos publicados pelo outbox carregam `event_id` e são tolerantes a duplicidade.
+
+Consulte o [runbook de processamento](docs/runbooks/video-processing.md) e o dashboard versionado em `monitoring/grafana/dashboards/fiapx-overview.json`.
+
 ## Troubleshooting
 
 - Se `/ready` retornar 503, confirme PostgreSQL e a migration.
 - Se uploads não forem publicados, verifique RabbitMQ em `15672`.
 - Se o frontend não iniciar, rode `npm ci` dentro de `frontend`.
 - Nunca commite `.env`; use `.env.example` como referência.
+
+## CI/CD e quality gates
+
+Os workflows ficam em `.github/workflows/`:
+
+- `backend-ci`: `uv sync --frozen`, Ruff format/lint, mypy, pytest com timeout, coverage e JUnit.
+- `frontend-ci`: `npm ci`, TypeScript strict, testes, build de produção e smoke E2E Playwright.
+- `ci-security`: CodeQL, pip-audit, npm audit e Gitleaks.
+- `ci-containers`: build das imagens API/frontend/workers, Trivy e SBOM CycloneDX.
+- `release`: tags `vMAJOR.MINOR.PATCH` publicam imagens versionadas no GHCR e criam GitHub Release.
+
+Para reproduzir os gates localmente:
+
+```powershell
+cd backend
+uv sync --frozen
+uv run ruff format --check .
+uv run ruff check .
+uv run mypy apps packages
+uv run pytest --cov=apps --cov=packages --cov-fail-under=20 --cov-report=term-missing --cov-report=xml --junitxml=test-results.xml --timeout=30
+
+cd ..\frontend
+npm ci
+npm run lint
+npm test
+npm run build
+npx playwright install chromium
+npm run e2e
+```
+
+O gate inicial de coverage é 20%, compatível com a suíte smoke atual e sujeito a aumento conforme os testes de domínio, autenticação, ownership e resiliência cresçam. Os checks recomendados como obrigatórios na proteção da `main` são `backend-ci`, `frontend-ci`, `security` e `containers`. No GitHub, configure também PR obrigatório, branch atualizada, resolução de conversas, bloqueio de force-push e de exclusão da branch. Essa configuração é administrativa e não é criada automaticamente pelo repositório.
+
+O versionamento segue SemVer: breaking change incrementa MAJOR, feature incrementa MINOR e correção incrementa PATCH. Consulte [docs/security.md](docs/security.md) e [SECURITY.md](SECURITY.md) para a política de segurança e supply chain.

@@ -7,6 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fiapx}
     ports: ["5432:5432"]
     volumes: [postgres_data:/var/lib/postgresql/data]
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -17,6 +18,7 @@ services:
     image: redis:7-alpine
     ports: ["6379:6379"]
     volumes: [redis_data:/data]
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
 
@@ -27,39 +29,43 @@ services:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-fiapx}
     ports: ["5672:5672", "15672:15672"]
     volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-fiapx}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-fiapxsecret}
     ports: ["9000:9000", "9001:9001"]
     volumes: [minio_data:/data]
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
 
   api:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://fiapx:fiapx@postgres:5432/fiapx
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fiapx}:${POSTGRES_PASSWORD:-fiapx}@postgres:5432/${POSTGRES_DB:-fiapx}
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://fiapx:fiapx@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-fiapx}:${RABBITMQ_PASSWORD:-fiapx}@rabbitmq:5672/
       MINIO_ENDPOINT: minio:9000
       MINIO_PUBLIC_ENDPOINT: localhost:9000
-      MINIO_ACCESS_KEY: fiapx
-      MINIO_SECRET_KEY: fiapxsecret
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-fiapx}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-fiapxsecret}
       MINIO_BUCKET: videos
       MINIO_SECURE: "false"
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      APP_ENV: ${APP_ENV:-local}
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-not-for-production}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:4200}
       PYTHONPATH: /app/apps/api/src:/app/apps/video_worker/src:/app/apps/notification_worker/src:/app/packages/shared
     command: uvicorn fiapx_api.main:app --host 0.0.0.0 --port 8000
     ports: ["${API_PORT:-8000}:8000"]
+    restart: unless-stopped
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -71,41 +77,82 @@ services:
   video-worker:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://fiapx:fiapx@postgres:5432/fiapx
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fiapx}:${POSTGRES_PASSWORD:-fiapx}@postgres:5432/${POSTGRES_DB:-fiapx}
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://fiapx:fiapx@rabbitmq:5672/
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-fiapx}:${RABBITMQ_PASSWORD:-fiapx}@rabbitmq:5672/
       MINIO_ENDPOINT: minio:9000
       MINIO_PUBLIC_ENDPOINT: localhost:9000
-      MINIO_ACCESS_KEY: fiapx
-      MINIO_SECRET_KEY: fiapxsecret
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-fiapx}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-fiapxsecret}
       MINIO_BUCKET: videos
       MINIO_SECURE: "false"
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_SECRET: ${JWT_SECRET:-local-development-only-not-for-production}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      VIDEO_MAX_DURATION_SECONDS: ${VIDEO_MAX_DURATION_SECONDS:-3600}
+      VIDEO_MAX_WIDTH: ${VIDEO_MAX_WIDTH:-3840}
+      VIDEO_MAX_HEIGHT: ${VIDEO_MAX_HEIGHT:-2160}
+      FFPROBE_TIMEOUT_SECONDS: ${FFPROBE_TIMEOUT_SECONDS:-30}
       PYTHONPATH: /app/apps/api/src:/app/apps/video_worker/src:/app/packages/shared
+      METRICS_PORT: 8001
     command: python -m fiapx_video_worker.main
     depends_on:
       rabbitmq: {condition: service_healthy}
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
       minio: {condition: service_healthy}
+    restart: on-failure:5
+    cpus: 2.0
+    mem_limit: 2g
+    pids_limit: 256
+    expose: ["8001"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/metrics')"]
 
   notification-worker:
     build: ./backend
     environment:
-      RABBITMQ_URL: amqp://fiapx:fiapx@rabbitmq:5672/
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-fiapx}:${POSTGRES_PASSWORD:-fiapx}@postgres:5432/${POSTGRES_DB:-fiapx}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-fiapx}:${RABBITMQ_PASSWORD:-fiapx}@rabbitmq:5672/
       PYTHONPATH: /app/apps/api/src:/app/apps/notification_worker/src:/app/packages/shared
+      METRICS_PORT: 8002
     command: python -m fiapx_notification_worker.main
     depends_on:
       rabbitmq: {condition: service_healthy}
+      postgres: {condition: service_healthy}
+    restart: on-failure:5
+    expose: ["8002"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/metrics')"]
 
   frontend:
     build: ./frontend
     ports: ["${FRONTEND_PORT:-4200}:80"]
+    restart: unless-stopped
     depends_on: [api]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on: [api]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    ports: ["3000:3000"]
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
   minio_data:
+  prometheus_data:
+  grafana_data:
