@@ -1,0 +1,42 @@
+<div class="app-shell">
+  <aside class="sidebar" [class.sidebar-open]="menuOpen()">
+    <a class="brand" routerLink="/dashboard"><span>FIAP</span> X</a>
+    <nav class="side-nav" aria-label="Navegação principal">
+      <a
+        routerLink="/dashboard"
+        routerLinkActive="active"
+        [routerLinkActiveOptions]="{ exact: true }"
+        (click)="closeMenu.emit()"
+      >
+        <span>⌂</span>Início
+      </a>
+      <a
+        routerLink="/videos"
+        routerLinkActive="active"
+        (click)="closeMenu.emit()"
+      >
+        <svg
+          class="nav-icon camera-nav-icon"
+          viewBox="0 0 24 24"
+          aria-hidden="true"
+        >
+          <rect x="3" y="7" width="14" height="11" rx="2"></rect>
+          <path d="m17 10 4-2v8l-4-2"></path>
+          <circle cx="10" cy="12.5" r="2.5"></circle>
+        </svg>
+        Meus Vídeos
+      </a>
+    </nav>
+    <button class="side-logout" (click)="logout()"><span>⇥</span>Sair</button>
+  </aside>
+
+  <button
+    class="mobile-menu"
+    aria-label="Abrir menu"
+    (click)="toggleMenu.emit()"
+  >
+    ☰
+  </button>
+
+  <main class="shell-content"><ng-content /></main>
+</div>

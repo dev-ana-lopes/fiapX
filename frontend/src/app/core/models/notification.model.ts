@@ -1,9 +1,9 @@
-export type NotificationStatus = 'PENDING' | 'READ';
+export type NotificationStatus = "PENDING" | "READ";
 
 export interface Notification {
   id: string;
   videoId: string;
-  type: 'VIDEO_COMPLETED' | 'VIDEO_FAILED' | string;
+  type: "VIDEO_COMPLETED" | "VIDEO_FAILED" | string;
   status: NotificationStatus | string;
   title: string | null;
   message: string | null;
@@ -27,7 +27,9 @@ export interface NotificationPageDto {
   unread_count: number;
 }
 
-export const mapNotificationDto = (dto: NotificationResponseDto): Notification => ({
+export const mapNotificationDto = (
+  dto: NotificationResponseDto,
+): Notification => ({
   id: dto.id,
   videoId: dto.video_id,
   type: dto.type,

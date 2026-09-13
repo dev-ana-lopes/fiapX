@@ -1,0 +1,56 @@
+<main class="login-shell">
+  <div class="login-glow"></div>
+  <section class="login-card">
+    <a class="auth-brand" routerLink="/login" aria-label="FIAP X"
+      ><span>FIAP</span> X</a
+    >
+    <h1>Bem-vindo de volta</h1>
+    <p class="muted auth-intro">Entre com sua conta para continuar</p>
+    <form (ngSubmit)="login()">
+      <label for="login-email">
+        E-mail
+        <input
+          id="login-email"
+          [(ngModel)]="email"
+          name="email"
+          required
+          type="email"
+          autocomplete="email"
+          placeholder="seu@email.com"
+        />
+      </label>
+      <label for="login-password">
+        Senha
+        <div class="password-field">
+          <input
+            id="login-password"
+            [(ngModel)]="password"
+            name="password"
+            required
+            autocomplete="current-password"
+            [type]="showPassword() ? 'text' : 'password'"
+            placeholder="••••••••"
+          />
+          <button
+            type="button"
+            [attr.aria-label]="
+              showPassword() ? 'Ocultar senha' : 'Mostrar senha'
+            "
+            (click)="showPassword.set(!showPassword())"
+          >
+            {{ showPassword() ? "◉" : "◌" }}
+          </button>
+        </div>
+      </label>
+      @if (error()) {
+        <p class="field-error" role="alert">{{ error() }}</p>
+      }
+      <button class="primary-button login-button" [disabled]="loading()">
+        {{ loading() ? "ENTRANDO…" : "ENTRAR" }}
+      </button>
+    </form>
+    <p class="login-footer">
+      Não tem uma conta? <a routerLink="/register">Cadastre-se</a>
+    </p>
+  </section>
+</main>

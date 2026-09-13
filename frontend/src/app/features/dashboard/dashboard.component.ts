@@ -1,52 +1,265 @@
-import { HttpEventType } from '@angular/common/http';
-import { Component, computed, DestroyRef, inject, signal } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
-import { catchError, concatMap, filter, from, interval, map, of, Subscription, switchMap, toArray } from 'rxjs';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { AppShellComponent } from '../../core/layout/app-shell.component';
-import { PageHeaderComponent } from '../../core/layout/page-header.component';
-import { BreadcrumbItem, BreadcrumbsComponent } from '../../core/layout/breadcrumbs.component';
-import { ALLOWED_VIDEO_EXTENSIONS, FRONTEND_UPLOAD_STATE_DELAY_MS, MAX_UPLOAD_SIZE_BYTES, POLLING_INTERVAL_MS } from '../../core/config/api.config';
-import { Video, VideoStatus } from '../../core/models/video.model';
-import { VideoService } from '../../core/services/video.service';
-import { AuthService } from '../../core/auth/auth.service';
-import { NotificationBellComponent } from '../../core/notifications/notification-bell.component';
-import { DownloadButtonComponent } from '../../core/videos/download-button.component';
+import { HttpEventType } from "@angular/common/http";
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  inject,
+  signal,
+} from "@angular/core";
+import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
+import { ActivatedRoute, RouterLink } from "@angular/router";
+import {
+  catchError,
+  concatMap,
+  filter,
+  from,
+  interval,
+  map,
+  of,
+  Subscription,
+  switchMap,
+  toArray,
+} from "rxjs";
+import {
+  ALLOWED_VIDEO_EXTENSIONS,
+  FRONTEND_UPLOAD_STATE_DELAY_MS,
+  MAX_UPLOAD_SIZE_BYTES,
+  POLLING_INTERVAL_MS,
+} from "@core/config/api.config";
+import {
+  BreadcrumbItem,
+  BreadcrumbsComponent,
+} from "@core/layout/breadcrumbs.component";
+import { AppShellComponent } from "@core/layout/app-shell.component";
+import { PageHeaderComponent } from "@core/layout/page-header.component";
+import { Video, VideoStatus } from "@core/models/video.model";
+import { VideoService } from "@core/services/video.service";
+import { DownloadButtonComponent } from "@core/videos/download-button.component";
 
-@Component({standalone:true,imports:[RouterLink,AppShellComponent,PageHeaderComponent,BreadcrumbsComponent,DownloadButtonComponent],template:`
-<app-shell [menuOpen]="menuOpen()" (toggleMenu)="menuOpen.set(!menuOpen())" (closeMenu)="menuOpen.set(false)">
-<app-page-header eyebrow="VISÃO GERAL" title="Processamento de vídeos" subtitle="Transforme seus vídeos em sequências de imagens." />
-<app-breadcrumbs [items]="breadcrumbs" />
-<section class="status-summary" aria-label="Resumo do processamento"><div><strong>{{totalVideos()}}</strong><span>Total</span></div><div><i class="status-dot queued-dot"></i><strong>{{queuedVideos().length}}</strong><span>Na fila</span></div><div><i class="status-dot processing-dot"></i><strong>{{processingVideos().length}}</strong><span>Processando</span></div><div><i class="status-dot completed-dot"></i><strong>{{completedVideos().length}}</strong><span>Concluídos</span></div></section>
-@if (error()) { <div class="state-message error-state" role="alert">{{error()}} <button class="text-button" (click)="loadVideos()">TENTAR NOVAMENTE</button></div> }
-@if (loading() && !videos().length) { <div class="video-grid">@for (item of [1,2,3]; track item) { <div class="video-card skeleton-card"><div class="thumb"></div><div class="card-content"><span class="skeleton-line"></span><span class="skeleton-line short"></span></div></div> }</div> }
-@if (!loading() && !error() && !videos().length) { <div class="empty-state"><h2>Nenhum vídeo enviado ainda.</h2><p class="muted">Envie seu primeiro vídeo para começar.</p><button class="primary-button" (click)="openUpload()">ENVIAR PRIMEIRO VÍDEO</button></div> }
-@if (activeVideos().length) { <section class="video-section"><div class="section-heading"><h2>Em processamento</h2><span>{{activeVideos().length}} vídeos</span></div><div class="video-grid" [class.single-processing-grid]="activeVideos().length===1">@for(video of activeVideos();track video.id){<a class="video-card processing-card" [class.single-processing-card]="activeVideos().length===1" [routerLink]="['/videos',video.id]"><div class="thumb processing-thumb"><div class="processing-visual"><span class="processing-spinner">◌</span><small>{{video.status==='QUEUED'?'AGUARDANDO INÍCIO':'PROCESSANDO VÍDEO'}}</small></div><button class="more-button" aria-label="Mais opções" (click)="$event.preventDefault()">⋮</button></div><div class="card-content"><strong class="truncate">{{video.originalFilename}}</strong><b class="status" [class.queued]="video.status==='QUEUED'" [class.active]="video.status==='PROCESSING'">{{video.status==='QUEUED'?'Na fila':'Processando'}} · {{video.progress}}%</b><div class="progress-row"><span class="progress-track"><span [style.width.%]="video.progress"></span></span><b>{{video.progress}}%</b></div><span class="card-note">◷ {{video.progressStage || 'Preparando processamento'}}</span><div class="processing-steps"><span [class.done]="isStepDone(video,0)">✓ Recebido</span><span [class.done]="isStepDone(video,25)">✓ Validado</span><span [class.done]="isStepDone(video,70)">✓ Extraindo frames</span><span [class.done]="isStepDone(video,90)">✓ Compactando ZIP</span></div><small class="processing-estimate">{{video.status==='QUEUED'?'Aguardando o worker…':video.progress>=80?'Finalizando em instantes':'Atualização automática ativa'}}</small></div></a>}</div></section> }
-@if (completedVideos().length) { <section class="video-section"><div class="section-heading"><h2>Finalizados</h2><select aria-label="Filtrar vídeos finalizados"><option>Todos</option></select></div><div class="video-grid">@for(video of displayedCompletedVideos();track video.id){<a class="video-card" [routerLink]="['/videos',video.id]"><div class="thumb thumb-default">@if(thumbnailUrls()[video.id]){<img class="thumb-image" [src]="thumbnailUrls()[video.id]" alt="Prévia do vídeo">}<button class="more-button" aria-label="Mais opções" (click)="$event.preventDefault()">⋮</button></div><div class="card-content"><strong class="truncate">{{video.originalFilename}}</strong><b class="status success">● Concluído</b><div class="card-footer"><app-download-button [video]="video" (failed)="error.set('Não foi possível iniciar o download.')" /></div></div></a>}</div>@if(completedTotalPages()>1){<nav class="video-pagination dashboard-pagination" aria-label="Paginação de vídeos finalizados"><button class="pagination-button" [disabled]="completedPage()===1" (click)="goToCompletedPage(completedPage()-1)">‹ ANTERIOR</button><span>Página <strong>{{completedPage()}}</strong> de <strong>{{completedTotalPages()}}</strong></span><button class="pagination-button" [disabled]="completedPage()===completedTotalPages()" (click)="goToCompletedPage(completedPage()+1)">PRÓXIMA ›</button></nav>}</section> }
-@if (failedVideos().length) { <section class="video-section"><div class="section-heading"><h2>Falhas</h2><span>{{failedVideos().length}} vídeos</span></div><div class="video-grid">@for(video of failedVideos();track video.id){<a class="video-card" [routerLink]="['/videos',video.id]"><div class="card-content"><strong class="truncate">{{video.originalFilename}}</strong><b class="status error">Falha no processamento</b><span class="card-note">{{video.errorMessage || 'Não foi possível processar este vídeo.'}}</span></div></a>}</div></section> }
-@if(uploadOpen()){<section class="upload-panel" role="dialog" aria-modal="true" aria-labelledby="upload-title"><div class="panel-title"><h2 id="upload-title">Enviar novos vídeos</h2><button class="close-button" aria-label="Fechar" (click)="closeUpload()">×</button></div><div class="dropzone" [class.drag-over]="dragOver()" (dragover)="$event.preventDefault();dragOver.set(true)" (dragleave)="dragOver.set(false)" (drop)="onDrop($event)" (click)="fileInput.click()"><div class="cloud">☁</div><p>Arraste e solte seus vídeos aqui</p><span>ou</span><button class="outline-button" type="button">SELECIONAR ARQUIVOS</button><input #fileInput hidden multiple type="file" [accept]="accept" (change)="selectFile($event)"></div>@if(selectedFiles().length){<div class="selected-files"><strong>{{selectedFiles().length}} vídeo(s) selecionado(s)</strong>@for(file of selectedFiles();track file.name + file.size){<span class="file-selected">✓ {{file.name}}</span>}</div>}@if(uploadError()){<p class="field-error" role="alert">{{uploadError()}}</p>}<div class="panel-actions"><button class="secondary-button" (click)="closeUpload()">CANCELAR</button><button class="primary-button" [disabled]="!selectedFiles().length || uploading()" (click)="upload()">{{uploading() ? 'ENVIANDO…' : 'ENVIAR'}}</button></div><small>Formatos aceitos: MP4, MOV, AVI, MKV, WEBM • Máx. 500 MB por vídeo</small></section>}
-</app-shell>`})
+@Component({
+  standalone: true,
+  imports: [
+    RouterLink,
+    AppShellComponent,
+    PageHeaderComponent,
+    BreadcrumbsComponent,
+    DownloadButtonComponent,
+  ],
+  templateUrl: "./dashboard.component.html",
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
 export class DashboardComponent {
-  private readonly service = inject(VideoService); private readonly route = inject(ActivatedRoute);
-  readonly auth = inject(AuthService);
-  readonly breadcrumbs: BreadcrumbItem[] = [{label:'Início'}];
-  readonly menuOpen=signal(false); readonly uploadOpen=signal(false); readonly selectedFiles=signal<File[]>([]); readonly dragOver=signal(false); readonly uploading=signal(false); readonly uploadProgress=signal(0); readonly uploadError=signal(''); readonly loading=signal(true); readonly error=signal(''); readonly videos=signal<Video[]>([]); readonly thumbnailUrls=signal<Record<string,string>>({}); readonly accept=ALLOWED_VIDEO_EXTENSIONS.map((item) => `.${item}`).join(',');
-  readonly completedPage=signal(1); readonly completedPageSize=8; readonly activeVideos=computed(()=>this.videos().filter((v)=>v.status==='PROCESSING'||v.status==='QUEUED')); readonly queuedVideos=computed(()=>this.videos().filter((v)=>v.status==='QUEUED')); readonly processingVideos=computed(()=>this.videos().filter((v)=>v.status==='PROCESSING')); readonly completedVideos=computed(()=>this.videos().filter((v)=>v.status==='COMPLETED')); readonly completedTotalPages=computed(()=>Math.max(1,Math.ceil(this.completedVideos().length/this.completedPageSize))); readonly displayedCompletedVideos=computed(()=>{const first=(this.completedPage()-1)*this.completedPageSize;return this.completedVideos().slice(first,first+this.completedPageSize);}); readonly failedVideos=computed(()=>this.videos().filter((v)=>v.status==='FAILED')); readonly totalVideos=computed(()=>this.videos().length);
-  private readonly destroyRef=inject(DestroyRef); private polling?: Subscription; private readonly thumbnailRequests=new Set<string>();
-  constructor() { this.destroyRef.onDestroy(()=>Object.values(this.thumbnailUrls()).forEach((url)=>URL.revokeObjectURL(url))); this.startPolling(); this.auth.loadCurrentUser().pipe(catchError(() => of(null))).subscribe(); this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params)=>{if(params.get('upload')==='true')this.openUpload();}); }
-  userInitials(): string { const name=this.auth.currentUser()?.name?.trim(); return name ? name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase() : 'US'; }
-  private startPolling(): void { this.polling?.unsubscribe(); this.polling=interval(POLLING_INTERVAL_MS).pipe(switchMap(()=>this.service.list().pipe(catchError(()=>of(null)))),takeUntilDestroyed(this.destroyRef)).subscribe((items)=>{this.loading.set(false);if(items){this.setVideos(items);this.loadThumbnails(items);this.error.set('');if(!items.some((item)=>item.status==='QUEUED'||item.status==='PROCESSING'))this.polling?.unsubscribe();}else if(!this.videos().length)this.error.set('Não foi possível carregar seus vídeos.');}); this.service.list().pipe(takeUntilDestroyed(this.destroyRef),catchError(()=>of(null))).subscribe((items)=>{this.loading.set(false);if(items){this.setVideos(items);this.loadThumbnails(items);this.error.set('');if(!items.some((item)=>item.status==='QUEUED'||item.status==='PROCESSING'))this.polling?.unsubscribe();}else if(!this.videos().length)this.error.set('Não foi possível carregar seus vídeos.');}); }
-  private loadThumbnails(items: Video[]): void { for (const video of items.filter((item)=>item.status==='COMPLETED')) { if (this.thumbnailUrls()[video.id] || this.thumbnailRequests.has(video.id)) continue; this.thumbnailRequests.add(video.id); this.service.thumbnail(video.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({next:(blob)=>{const url=URL.createObjectURL(blob);this.thumbnailUrls.update((urls)=>({...urls,[video.id]:url}));},complete:()=>this.thumbnailRequests.delete(video.id),error:()=>this.thumbnailRequests.delete(video.id)}); } }
-  private setVideos(items: Video[]): void { this.videos.set(items); if(this.completedPage()>this.completedTotalPages())this.completedPage.set(this.completedTotalPages()); }
-  goToCompletedPage(page: number): void { if(page>=1&&page<=this.completedTotalPages())this.completedPage.set(page); }
-  loadVideos(): void { this.loading.set(true); this.startPolling(); }
-  openUpload(): void { this.uploadError.set(''); this.uploadOpen.set(true); }
-  closeUpload(): void { if(!this.uploading()) { this.uploadOpen.set(false); this.selectedFiles.set([]); } }
-  selectFile(event: Event): void { this.setFiles(Array.from((event.target as HTMLInputElement).files || [])); }
-  onDrop(event: DragEvent): void { event.preventDefault(); this.dragOver.set(false); this.setFiles(Array.from(event.dataTransfer?.files || [])); }
-  private setFiles(files: File[]): void { this.uploadError.set(''); for (const file of files) { const ext=file.name.split('.').pop()?.toLowerCase(); if(!ext || !ALLOWED_VIDEO_EXTENSIONS.includes(ext)){this.uploadError.set(`Formato não suportado: ${file.name}`);return;} if(file.size>MAX_UPLOAD_SIZE_BYTES){this.uploadError.set(`Arquivo acima de 500 MB: ${file.name}`);return;} } this.selectedFiles.set(files); }
-  isStepDone(video: Video, threshold: number): boolean { return video.status === 'PROCESSING' && video.progress >= threshold; }
-  upload(): void { const files=this.selectedFiles(); if(!files.length)return; this.uploading.set(true); from(files).pipe(concatMap((file)=>this.service.upload(file).pipe(filter((event)=>event.type===HttpEventType.Response),map(()=>true),catchError(()=>of(false)))),toArray(),takeUntilDestroyed(this.destroyRef)).subscribe((results)=>{this.uploading.set(false);const failed=results.filter((result)=>!result).length;if(failed)this.uploadError.set(`${failed} vídeo(s) não puderam ser enviados.`);else {this.closeUpload();setTimeout(()=>this.loadVideos(),FRONTEND_UPLOAD_STATE_DELAY_MS);}if(failed)this.loadVideos();}); }
-  download(video: Video,event: Event): void { event.preventDefault(); event.stopPropagation(); if(!video.downloadAvailable)return; this.service.download(video.id).subscribe({next:(blob)=>this.saveDownload(blob),error:()=>this.error.set('Não foi possível iniciar o download.')}); }
-  private saveDownload(blob: Blob): void { const url=URL.createObjectURL(blob); const link=document.createElement('a'); link.href=url; link.download='frames.zip'; link.click(); URL.revokeObjectURL(url); }
+  private readonly service = inject(VideoService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly thumbnailRequests = new Set<string>();
+  private polling?: Subscription;
+
+  readonly breadcrumbs: BreadcrumbItem[] = [{ label: "Início" }];
+  readonly menuOpen = signal(false);
+  readonly uploadOpen = signal(false);
+  readonly selectedFiles = signal<File[]>([]);
+  readonly dragOver = signal(false);
+  readonly uploading = signal(false);
+  readonly uploadError = signal("");
+  readonly loading = signal(true);
+  readonly error = signal("");
+  readonly videos = signal<Video[]>([]);
+  readonly thumbnailUrls = signal<Record<string, string>>({});
+  readonly accept = ALLOWED_VIDEO_EXTENSIONS.map(
+    (extension) => `.${extension}`,
+  ).join(",");
+  readonly completedPage = signal(1);
+  readonly completedPageSize = 10;
+  readonly activeVideos = computed(() =>
+    this.videos().filter(
+      (video) => video.status === "PROCESSING" || video.status === "QUEUED",
+    ),
+  );
+  readonly queuedVideos = computed(() =>
+    this.videos().filter(this.hasStatus("QUEUED")),
+  );
+  readonly processingVideos = computed(() =>
+    this.videos().filter(this.hasStatus("PROCESSING")),
+  );
+  readonly completedVideos = computed(() =>
+    this.videos().filter(this.hasStatus("COMPLETED")),
+  );
+  readonly completedTotalPages = computed(() =>
+    Math.max(
+      1,
+      Math.ceil(this.completedVideos().length / this.completedPageSize),
+    ),
+  );
+  readonly displayedCompletedVideos = computed(() => {
+    const first = (this.completedPage() - 1) * this.completedPageSize;
+    return this.completedVideos().slice(first, first + this.completedPageSize);
+  });
+  readonly failedVideos = computed(() =>
+    this.videos().filter(this.hasStatus("FAILED")),
+  );
+  readonly totalVideos = computed(() => this.videos().length);
+
+  constructor() {
+    this.destroyRef.onDestroy(() =>
+      Object.values(this.thumbnailUrls()).forEach((url) =>
+        URL.revokeObjectURL(url),
+      ),
+    );
+    this.startPolling();
+    this.route.queryParamMap
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((params) => {
+        if (params.get("upload") === "true") this.openUpload();
+      });
+  }
+
+  goToCompletedPage(page: number): void {
+    if (page >= 1 && page <= this.completedTotalPages())
+      this.completedPage.set(page);
+  }
+
+  loadVideos(): void {
+    this.loading.set(true);
+    this.startPolling();
+  }
+
+  openUpload(): void {
+    this.uploadError.set("");
+    this.uploadOpen.set(true);
+  }
+
+  closeUpload(): void {
+    if (this.uploading()) return;
+    this.uploadOpen.set(false);
+    this.selectedFiles.set([]);
+  }
+
+  selectFile(event: Event): void {
+    this.setFiles(Array.from((event.target as HTMLInputElement).files || []));
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(false);
+    this.setFiles(Array.from(event.dataTransfer?.files || []));
+  }
+
+  isStepDone(video: Video, threshold: number): boolean {
+    return video.status === "PROCESSING" && video.progress >= threshold;
+  }
+
+  upload(): void {
+    const files = this.selectedFiles();
+    if (!files.length) return;
+    this.uploading.set(true);
+    from(files)
+      .pipe(
+        concatMap((file) =>
+          this.service.upload(file).pipe(
+            filter((event) => event.type === HttpEventType.Response),
+            map(() => true),
+            catchError(() => of(false)),
+          ),
+        ),
+        toArray(),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((results) => {
+        this.uploading.set(false);
+        const failed = results.filter((result) => !result).length;
+        if (failed) {
+          this.uploadError.set(`${failed} vídeo(s) não puderam ser enviados.`);
+          this.loadVideos();
+          return;
+        }
+        this.closeUpload();
+        setTimeout(() => this.loadVideos(), FRONTEND_UPLOAD_STATE_DELAY_MS);
+      });
+  }
+
+  private startPolling(): void {
+    this.polling?.unsubscribe();
+    this.polling = interval(POLLING_INTERVAL_MS)
+      .pipe(
+        switchMap(() => this.service.list().pipe(catchError(() => of(null)))),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((items) => this.handleVideoResponse(items));
+    this.service
+      .list()
+      .pipe(
+        catchError(() => of(null)),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((items) => this.handleVideoResponse(items));
+  }
+
+  private handleVideoResponse(items: Video[] | null): void {
+    this.loading.set(false);
+    if (!items) {
+      if (!this.videos().length)
+        this.error.set("Não foi possível carregar seus vídeos.");
+      return;
+    }
+    this.setVideos(items);
+    this.loadThumbnails(items);
+    this.error.set("");
+    if (
+      !items.some(
+        (item) => item.status === "QUEUED" || item.status === "PROCESSING",
+      )
+    )
+      this.polling?.unsubscribe();
+  }
+
+  private loadThumbnails(items: Video[]): void {
+    for (const video of items.filter(this.hasStatus("COMPLETED"))) {
+      if (
+        this.thumbnailUrls()[video.id] ||
+        this.thumbnailRequests.has(video.id)
+      )
+        continue;
+      this.thumbnailRequests.add(video.id);
+      this.service
+        .thumbnail(video.id)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: (blob) =>
+            this.thumbnailUrls.update((urls) => ({
+              ...urls,
+              [video.id]: URL.createObjectURL(blob),
+            })),
+          complete: () => this.thumbnailRequests.delete(video.id),
+          error: () => this.thumbnailRequests.delete(video.id),
+        });
+    }
+  }
+
+  private setVideos(items: Video[]): void {
+    this.videos.set(items);
+    if (this.completedPage() > this.completedTotalPages())
+      this.completedPage.set(this.completedTotalPages());
+  }
+
+  private hasStatus(status: VideoStatus): (video: Video) => boolean {
+    return (video) => video.status === status;
+  }
+
+  private setFiles(files: File[]): void {
+    this.uploadError.set("");
+    for (const file of files) {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      if (!extension || !ALLOWED_VIDEO_EXTENSIONS.includes(extension)) {
+        this.uploadError.set(`Formato não suportado: ${file.name}`);
+        return;
+      }
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+        this.uploadError.set(`Arquivo acima de 500 MB: ${file.name}`);
+        return;
+      }
+    }
+    this.selectedFiles.set(files);
+  }
 }

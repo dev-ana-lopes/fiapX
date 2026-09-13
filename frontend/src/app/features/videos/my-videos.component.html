@@ -1,0 +1,84 @@
+<app-shell>
+  <app-page-header
+    eyebrow="BIBLIOTECA"
+    title="Meus vídeos"
+    subtitle="Consulte seus vídeos processados e baixe as imagens geradas."
+  />
+  <app-breadcrumbs [items]="breadcrumbs" />
+  @if (loading()) {
+    <div class="video-list-skeleton">
+      @for (item of [1, 2, 3]; track item) {
+        <div class="video-list-row skeleton-row">
+          <span></span><span></span><span></span>
+        </div>
+      }
+    </div>
+  }
+  @if (!loading() && error()) {
+    <div class="state-message error-state" role="alert">
+      {{ error() }}
+      <button class="text-button" (click)="load()">TENTAR NOVAMENTE</button>
+    </div>
+  }
+  @if (!loading() && !error() && !videos().length) {
+    <div class="empty-state">
+      <h2>Nenhum vídeo processado ainda.</h2>
+      <p class="muted">Os vídeos concluídos aparecerão aqui.</p>
+    </div>
+  }
+  @if (!loading() && videos().length) {
+    <section class="video-list" aria-label="Vídeos processados">
+      <div class="video-list-header">
+        <span>ID</span><span>VÍDEO</span><span>DATA DE IMPORTAÇÃO</span
+        ><span>STATUS</span><span>AÇÕES</span>
+      </div>
+      @for (video of videos(); track video.id) {
+        <div class="video-list-row">
+          <span class="video-list-id" [title]="video.id">{{ video.id }}</span>
+          <a class="video-list-main" [routerLink]="['/videos', video.id]"
+            ><div class="list-thumb thumb-default">
+              @if (thumbnailUrls()[video.id]) {
+                <img
+                  class="thumb-image"
+                  [src]="thumbnailUrls()[video.id]"
+                  alt="Prévia do vídeo"
+                />
+              }
+            </div>
+            <strong class="truncate">{{ video.originalFilename }}</strong></a
+          >
+          <time [attr.datetime]="video.createdAt">{{
+            video.createdAt | date: "dd/MM/yyyy HH:mm"
+          }}</time>
+          <b class="status success">● Concluído</b>
+          <app-download-button
+            [video]="video"
+            (failed)="error.set('Não foi possível iniciar o download.')"
+          />
+        </div>
+      }
+    </section>
+    @if (totalPages() > 1) {
+      <nav class="video-pagination" aria-label="Paginação de vídeos">
+        <button
+          class="pagination-button"
+          [disabled]="page() === 1"
+          (click)="goToPage(page() - 1)"
+        >
+          ‹ ANTERIOR
+        </button>
+        <span
+          >Página <strong>{{ page() }}</strong> de
+          <strong>{{ totalPages() }}</strong></span
+        >
+        <button
+          class="pagination-button"
+          [disabled]="page() === totalPages()"
+          (click)="goToPage(page() + 1)"
+        >
+          PRÓXIMA ›
+        </button>
+      </nav>
+    }
+  }
+</app-shell>

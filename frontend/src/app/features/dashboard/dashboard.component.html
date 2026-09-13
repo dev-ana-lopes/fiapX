@@ -1,0 +1,292 @@
+<app-shell
+  [menuOpen]="menuOpen()"
+  (toggleMenu)="menuOpen.set(!menuOpen())"
+  (closeMenu)="menuOpen.set(false)"
+>
+  <app-page-header
+    eyebrow="VISÃO GERAL"
+    title="Processamento de vídeos"
+    subtitle="Transforme seus vídeos em sequências de imagens."
+  />
+  <app-breadcrumbs [items]="breadcrumbs" />
+  <section class="status-summary" aria-label="Resumo do processamento">
+    <div>
+      <strong>{{ totalVideos() }}</strong
+      ><span>Total</span>
+    </div>
+    <div>
+      <i class="status-dot queued-dot"></i
+      ><strong>{{ queuedVideos().length }}</strong
+      ><span>Na fila</span>
+    </div>
+    <div>
+      <i class="status-dot processing-dot"></i
+      ><strong>{{ processingVideos().length }}</strong
+      ><span>Processando</span>
+    </div>
+    <div>
+      <i class="status-dot completed-dot"></i
+      ><strong>{{ completedVideos().length }}</strong
+      ><span>Concluídos</span>
+    </div>
+  </section>
+
+  @if (error()) {
+    <div class="state-message error-state" role="alert">
+      {{ error() }}
+      <button class="text-button" (click)="loadVideos()">
+        TENTAR NOVAMENTE
+      </button>
+    </div>
+  }
+  @if (loading() && !videos().length) {
+    <div class="video-grid">
+      @for (item of [1, 2, 3]; track item) {
+        <div class="video-card skeleton-card">
+          <div class="thumb"></div>
+          <div class="card-content">
+            <span class="skeleton-line"></span
+            ><span class="skeleton-line short"></span>
+          </div>
+        </div>
+      }
+    </div>
+  }
+  @if (!loading() && !error() && !videos().length) {
+    <div class="empty-state">
+      <h2>Nenhum vídeo enviado ainda.</h2>
+      <p class="muted">Envie seu primeiro vídeo para começar.</p>
+      <button class="primary-button" (click)="openUpload()">
+        ENVIAR PRIMEIRO VÍDEO
+      </button>
+    </div>
+  }
+  @if (activeVideos().length) {
+    <section class="video-section">
+      <div class="section-heading">
+        <h2>Em processamento</h2>
+        <span>{{ activeVideos().length }} vídeos</span>
+      </div>
+      <div
+        class="video-grid"
+        [class.single-processing-grid]="activeVideos().length === 1"
+      >
+        @for (video of activeVideos(); track video.id) {
+          <a
+            class="video-card processing-card"
+            [class.single-processing-card]="activeVideos().length === 1"
+            [routerLink]="['/videos', video.id]"
+          >
+            <div class="thumb processing-thumb">
+              <div class="processing-visual">
+                <span class="processing-spinner">◌</span
+                ><small>{{
+                  video.status === "QUEUED"
+                    ? "AGUARDANDO INÍCIO"
+                    : "PROCESSANDO VÍDEO"
+                }}</small>
+              </div>
+              <button
+                class="more-button"
+                aria-label="Mais opções"
+                (click)="$event.preventDefault()"
+              >
+                ⋮
+              </button>
+            </div>
+            <div class="card-content">
+              <strong class="truncate">{{ video.originalFilename }}</strong>
+              <b
+                class="status"
+                [class.queued]="video.status === 'QUEUED'"
+                [class.active]="video.status === 'PROCESSING'"
+                >{{ video.status === "QUEUED" ? "Na fila" : "Processando" }} ·
+                {{ video.progress }}%</b
+              >
+              <div class="progress-row">
+                <span class="progress-track"
+                  ><span [style.width.%]="video.progress"></span></span
+                ><b>{{ video.progress }}%</b>
+              </div>
+              <span class="card-note"
+                >◷ {{ video.progressStage || "Preparando processamento" }}</span
+              >
+              <div class="processing-steps">
+                <span [class.done]="isStepDone(video, 0)">✓ Recebido</span
+                ><span [class.done]="isStepDone(video, 25)">✓ Validado</span>
+                <span [class.done]="isStepDone(video, 70)"
+                  >✓ Extraindo frames</span
+                ><span [class.done]="isStepDone(video, 90)"
+                  >✓ Compactando ZIP</span
+                >
+              </div>
+              <small class="processing-estimate">{{
+                video.status === "QUEUED"
+                  ? "Aguardando o worker…"
+                  : video.progress >= 80
+                    ? "Finalizando em instantes"
+                    : "Atualização automática ativa"
+              }}</small>
+            </div>
+          </a>
+        }
+      </div>
+    </section>
+  }
+  @if (completedVideos().length) {
+    <section class="video-section">
+      <div class="section-heading">
+        <h2>Finalizados</h2>
+        <select aria-label="Filtrar vídeos finalizados">
+          <option>Todos</option>
+        </select>
+      </div>
+      <div class="video-grid">
+        @for (video of displayedCompletedVideos(); track video.id) {
+          <a class="video-card" [routerLink]="['/videos', video.id]">
+            <div class="thumb thumb-default">
+              @if (thumbnailUrls()[video.id]) {
+                <img
+                  class="thumb-image"
+                  [src]="thumbnailUrls()[video.id]"
+                  alt="Prévia do vídeo"
+                />
+              }
+              <button
+                class="more-button"
+                aria-label="Mais opções"
+                (click)="$event.preventDefault()"
+              >
+                ⋮
+              </button>
+            </div>
+            <div class="card-content">
+              <strong class="truncate">{{ video.originalFilename }}</strong
+              ><b class="status success">● Concluído</b>
+              <div class="card-footer">
+                <app-download-button
+                  [video]="video"
+                  (failed)="error.set('Não foi possível iniciar o download.')"
+                />
+              </div>
+            </div>
+          </a>
+        }
+      </div>
+      @if (completedTotalPages() > 1) {
+        <nav
+          class="video-pagination dashboard-pagination"
+          aria-label="Paginação de vídeos finalizados"
+        >
+          <button
+            class="pagination-button"
+            [disabled]="completedPage() === 1"
+            (click)="goToCompletedPage(completedPage() - 1)"
+          >
+            ‹ ANTERIOR
+          </button>
+          <span
+            >Página <strong>{{ completedPage() }}</strong> de
+            <strong>{{ completedTotalPages() }}</strong></span
+          >
+          <button
+            class="pagination-button"
+            [disabled]="completedPage() === completedTotalPages()"
+            (click)="goToCompletedPage(completedPage() + 1)"
+          >
+            PRÓXIMA ›
+          </button>
+        </nav>
+      }
+    </section>
+  }
+  @if (failedVideos().length) {
+    <section class="video-section">
+      <div class="section-heading">
+        <h2>Falhas</h2>
+        <span>{{ failedVideos().length }} vídeos</span>
+      </div>
+      <div class="video-grid">
+        @for (video of failedVideos(); track video.id) {
+          <a class="video-card" [routerLink]="['/videos', video.id]"
+            ><div class="card-content">
+              <strong class="truncate">{{ video.originalFilename }}</strong
+              ><b class="status error">Falha no processamento</b
+              ><span class="card-note">{{
+                video.errorMessage || "Não foi possível processar este vídeo."
+              }}</span>
+            </div></a
+          >
+        }
+      </div>
+    </section>
+  }
+  @if (uploadOpen()) {
+    <section
+      class="upload-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="upload-title"
+    >
+      <div class="panel-title">
+        <h2 id="upload-title">Enviar novos vídeos</h2>
+        <button
+          class="close-button"
+          aria-label="Fechar"
+          (click)="closeUpload()"
+        >
+          ×
+        </button>
+      </div>
+      <div
+        class="dropzone"
+        [class.drag-over]="dragOver()"
+        (dragover)="$event.preventDefault(); dragOver.set(true)"
+        (dragleave)="dragOver.set(false)"
+        (drop)="onDrop($event)"
+        (click)="fileInput.click()"
+      >
+        <div class="cloud">☁</div>
+        <p>Arraste e solte seus vídeos aqui</p>
+        <span>ou</span
+        ><button class="outline-button" type="button">
+          SELECIONAR ARQUIVOS
+        </button>
+        <input
+          #fileInput
+          hidden
+          multiple
+          type="file"
+          [accept]="accept"
+          (change)="selectFile($event)"
+        />
+      </div>
+      @if (selectedFiles().length) {
+        <div class="selected-files">
+          <strong>{{ selectedFiles().length }} vídeo(s) selecionado(s)</strong>
+          @for (file of selectedFiles(); track file.name + file.size) {
+            <span class="file-selected">✓ {{ file.name }}</span>
+          }
+        </div>
+      }
+      @if (uploadError()) {
+        <p class="field-error" role="alert">{{ uploadError() }}</p>
+      }
+      <div class="panel-actions">
+        <button class="secondary-button" (click)="closeUpload()">
+          CANCELAR</button
+        ><button
+          class="primary-button"
+          [disabled]="!selectedFiles().length || uploading()"
+          (click)="upload()"
+        >
+          {{ uploading() ? "ENVIANDO…" : "ENVIAR" }}
+        </button>
+      </div>
+      <small
+        >Formatos aceitos: MP4, MOV, AVI, MKV, WEBM • Máx. 500 MB por
+        vídeo</small
+      >
+    </section>
+  }
+</app-shell>

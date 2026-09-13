@@ -1,0 +1,81 @@
+<button
+  class="icon-button"
+  aria-label="Notificações"
+  [attr.aria-expanded]="open()"
+  (click)="toggle($event)"
+>
+  🔔
+  @if (unreadCount()) {
+    <i>{{ unreadCount() }}</i>
+  }
+</button>
+
+@if (open()) {
+  <div class="notification-backdrop" (click)="close()">
+    <section
+      class="notification-popover"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="notification-title"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="notification-popover-header">
+        <div>
+          <p class="page-kicker">CENTRAL DE ATIVIDADES</p>
+          <h2 id="notification-title">Notificações</h2>
+        </div>
+        <button
+          class="close-button"
+          aria-label="Fechar notificações"
+          (click)="close()"
+        >
+          ×
+        </button>
+      </header>
+
+      @if (loading()) {
+        <p class="muted notification-loading">Carregando notificações…</p>
+      } @else if (error()) {
+        <p class="field-error">{{ error() }}</p>
+      } @else if (!notifications().length) {
+        <p class="muted notification-empty">Nenhuma notificação nova.</p>
+      } @else {
+        <div class="notification-popover-list">
+          @for (item of notifications(); track item.id) {
+            <button
+              class="notification-popover-item"
+              [class.notification-unread]="item.status === 'PENDING'"
+              (click)="openVideos(item)"
+            >
+              <span class="notification-icon" [class]="iconClass(item)">{{
+                icon(item)
+              }}</span>
+              <span class="notification-copy">
+                <strong>{{
+                  item.title || "Atualização do processamento"
+                }}</strong>
+                <small>{{
+                  item.message || "Há uma atualização sobre seu vídeo."
+                }}</small>
+                <time>{{ formatTime(item.createdAt) }}</time>
+              </span>
+            </button>
+          }
+        </div>
+      }
+
+      <footer class="notification-popover-footer">
+        <button
+          class="text-button"
+          [disabled]="!unreadCount() || loading()"
+          (click)="markAllRead()"
+        >
+          MARCAR TODAS COMO LIDAS
+        </button>
+        <button class="text-button" (click)="goToVideos()">
+          VER MEUS VÍDEOS
+        </button>
+      </footer>
+    </section>
+  </div>
+}

@@ -1,0 +1,57 @@
+<app-shell>
+  <header class="notifications-header">
+    <div>
+      <p class="page-kicker">CENTRAL DE ATIVIDADES</p>
+      <h1>Notificações</h1>
+    </div>
+    <button
+      class="text-button"
+      [disabled]="unreadCount() === 0 || loading()"
+      (click)="markAllRead()"
+    >
+      MARCAR TODAS COMO LIDAS
+    </button>
+  </header>
+  @if (loading()) {
+    <div class="state-message">Carregando notificações…</div>
+  } @else if (error()) {
+    <div class="state-message error-state">
+      {{ error() }}
+      <button class="text-button" (click)="load()">Tentar novamente</button>
+    </div>
+  } @else if (!notifications().length) {
+    <div class="empty-state">
+      <h2>Nenhuma notificação</h2>
+      <p class="muted">
+        Você será avisado quando houver novidades sobre seus vídeos.
+      </p>
+    </div>
+  } @else {
+    @for (group of groups(); track group.label) {
+      <section class="notification-group">
+        <h3>{{ group.label }}</h3>
+        @for (item of group.items; track item.id) {
+          <article
+            class="notification-item"
+            [class.notification-unread]="item.status === 'PENDING'"
+            (click)="markRead(item)"
+          >
+            <span class="notification-icon" [class]="iconClass(item)">{{
+              icon(item)
+            }}</span>
+            <div>
+              <strong>{{
+                item.title || "Atualização do processamento"
+              }}</strong>
+              <p>{{ item.message || "Há uma atualização sobre seu vídeo." }}</p>
+            </div>
+            <time>{{ formatTime(item.createdAt) }}</time>
+            @if (item.status === "PENDING") {
+              <i class="unread" aria-label="Não lida"></i>
+            }
+          </article>
+        }
+      </section>
+    }
+  }
+</app-shell>

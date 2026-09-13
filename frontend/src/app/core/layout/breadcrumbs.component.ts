@@ -1,5 +1,5 @@
-import { Component, input } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, input } from "@angular/core";
+import { RouterLink } from "@angular/router";
 
 export interface BreadcrumbItem {
   label: string;
@@ -7,10 +7,11 @@ export interface BreadcrumbItem {
 }
 
 @Component({
-  selector: 'app-breadcrumbs',
+  selector: "app-breadcrumbs",
   standalone: true,
   imports: [RouterLink],
-  template: `<nav class="breadcrumbs" aria-label="Navegação estrutural"><ol>@for (item of items(); track item.label; let last = $last) {<li>@if (item.route && !last) {<a [routerLink]="item.route">{{item.label}}</a>} @else {<span [attr.aria-current]="last ? 'page' : null">{{item.label}}</span>} @if (!last) {<i aria-hidden="true">/</i>}</li>}</ol></nav>`,
+  templateUrl: "./breadcrumbs.component.html",
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BreadcrumbsComponent {
   readonly items = input.required<BreadcrumbItem[]>();

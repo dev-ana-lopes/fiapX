@@ -1,11 +1,18 @@
-import { Component, inject, input, output } from '@angular/core';
-import { Video } from '../models/video.model';
-import { VideoService } from '../services/video.service';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  inject,
+  input,
+  output,
+} from "@angular/core";
+import { Video } from "../models/video.model";
+import { VideoService } from "../services/video.service";
 
 @Component({
-  selector: 'app-download-button',
+  selector: "app-download-button",
   standalone: true,
-  template: `<button class="download-action" [disabled]="!video().downloadAvailable" (click)="download($event)">⇩&nbsp; BAIXAR ZIP</button>`,
+  templateUrl: "./download-button.component.html",
+  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DownloadButtonComponent {
   readonly video = input.required<Video>();
@@ -19,9 +26,9 @@ export class DownloadButtonComponent {
     this.service.download(this.video().id).subscribe({
       next: (blob) => {
         const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
+        const link = document.createElement("a");
         link.href = url;
-        link.download = 'frames.zip';
+        link.download = "frames.zip";
         link.click();
         URL.revokeObjectURL(url);
       },

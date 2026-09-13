@@ -1,0 +1,33 @@
+# FIAP X — Frontend Engineering Rules
+
+## Angular
+
+- Angular 22 with standalone components.
+- Prefer Signals for local state, `computed()` for derived state, and `inject()` where appropriate.
+- Prefer `@if`, `@for`, `@switch`, and `@defer`; use stable tracking in lists.
+- Preserve feature lazy loading and use `ChangeDetectionStrategy.OnPush` when safe.
+
+## Formatting
+
+- Maximum 140 characters per line, 2-space indentation, and no tabs.
+- Use kebab-case file names and exactly one trailing newline.
+- Keep non-trivial templates and component styles in adjacent files.
+
+## Components and templates
+
+- Keep components focused on presentation state and interactions; services own HTTP and orchestration.
+- Keep templates declarative, semantic, and accessible; avoid heavy work in templates.
+- Do not change backend contracts, routes, payloads, or endpoint behavior during refactors.
+
+## Styling
+
+- Use Tailwind for utilities, Angular Material for behavior, and local SCSS for structural component styles.
+- Keep `styles.css` limited to global tokens, resets, themes, and shared primitives.
+- Preserve default view encapsulation; avoid `::ng-deep`, ID selectors, and tag selectors for component-specific UI.
+
+## Quality gates
+
+1. Run lint when configured.
+2. Run tests.
+3. Run the production build.
+4. Verify formatting, accessibility, and API-contract preservation.
