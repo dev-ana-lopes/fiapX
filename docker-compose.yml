@@ -34,7 +34,7 @@ services:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
 
   minio:
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: quay.io/minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-fiapx}
@@ -91,6 +91,7 @@ services:
       VIDEO_MAX_DURATION_SECONDS: ${VIDEO_MAX_DURATION_SECONDS:-3600}
       VIDEO_MAX_WIDTH: ${VIDEO_MAX_WIDTH:-3840}
       VIDEO_MAX_HEIGHT: ${VIDEO_MAX_HEIGHT:-2160}
+      VIDEO_PROCESSING_STAGE_DELAY_SECONDS: ${VIDEO_PROCESSING_STAGE_DELAY_SECONDS:-1}
       FFPROBE_TIMEOUT_SECONDS: ${FFPROBE_TIMEOUT_SECONDS:-30}
       PYTHONPATH: /app/apps/api/src:/app/apps/video_worker/src:/app/packages/shared
       METRICS_PORT: 8001

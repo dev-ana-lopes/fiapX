@@ -1,8 +1,10 @@
 import asyncio
+import io
 import logging
 import mimetypes
 import re
 import tempfile
+import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -420,6 +422,56 @@ async def get_video(
     finally:
         await redis.client.aclose()
     return _response(video, progress, progress_stage)
+
+
+@api.get("/videos/{video_id}/thumbnail", tags=["Videos"])
+async def video_thumbnail(
+    video_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> Response:
+    video = (
+        await session.execute(select(Video).where(Video.id == video_id, Video.user_id == user.id))
+    ).scalar_one_or_none()
+    if video is None or video.status != VideoStatus.COMPLETED or not video.result_object_key:
+        raise HTTPException(404, "thumbnail not available")
+    try:
+        archive = await storage.read(video.result_object_key)
+        with zipfile.ZipFile(io.BytesIO(archive)) as frames_zip:
+            frame_names = sorted(
+                name
+                for name in frames_zip.namelist()
+                if name.startswith("frame_") and name.lower().endswith(".jpg")
+            )
+            if not frame_names:
+                raise ValueError("archive contains no frames")
+            frame = frames_zip.read(frame_names[0])
+    except (KeyError, ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(404, "thumbnail not available") from exc
+    return Response(
+        content=frame,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@api.get("/videos/{video_id}/preview", tags=["Videos"])
+async def video_preview(
+    video_id: UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> Response:
+    video = (
+        await session.execute(select(Video).where(Video.id == video_id, Video.user_id == user.id))
+    ).scalar_one_or_none()
+    if video is None:
+        raise HTTPException(404, "video not found")
+    content = await storage.read(video.object_key)
+    return Response(
+        content=content,
+        media_type=video.content_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @api.get("/videos/{video_id}/download", tags=["Videos"])

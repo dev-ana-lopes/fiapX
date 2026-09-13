@@ -55,6 +55,9 @@ async def progress(video_id: UUID, value: int, state: VideoStatus, stage: str) -
             update(Video).where(Video.id == video_id).values(progress=value, progress_stage=stage)
         )
         await session.commit()
+    delay = get_settings().video_processing_stage_delay_seconds
+    if delay > 0:
+        await asyncio.sleep(delay)
 
 
 async def publish_event(

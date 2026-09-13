@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 524288000
     allowed_video_extensions: str = ".mp4,.mov,.avi,.mkv,.webm"
     video_frame_interval_seconds: float = 1.0
+    video_processing_stage_delay_seconds: float = 1.0
     video_max_duration_seconds: int = 3600
     video_max_width: int = 3840
     video_max_height: int = 2160

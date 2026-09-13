@@ -17,6 +17,7 @@ export interface Video {
   startedAt: string | null;
   finishedAt: string | null;
   downloadAvailable: boolean;
+  thumbnailUrl?: string;
 }
 
 export interface VideoResponseDto {
