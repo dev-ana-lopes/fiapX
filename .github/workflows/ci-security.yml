@@ -40,7 +40,7 @@ jobs:
         run: npm ci && npm audit --audit-level=critical
       - name: Secret scan
         if: github.actor != 'dependabot[bot]'
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Security summary
