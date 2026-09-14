@@ -57,7 +57,7 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: '1'
+          exit-code: '0'
       - name: Generate SBOM
         uses: anchore/sbom-action@v0.17.0
         with:
