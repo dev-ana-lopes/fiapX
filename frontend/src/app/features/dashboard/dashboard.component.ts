@@ -8,7 +8,7 @@ import {
   signal,
 } from "@angular/core";
 import { takeUntilDestroyed } from "@angular/core/rxjs-interop";
-import { ActivatedRoute, RouterLink } from "@angular/router";
+import { ActivatedRoute, Router, RouterLink } from "@angular/router";
 import {
   catchError,
   concatMap,
@@ -52,6 +52,7 @@ import { DownloadButtonComponent } from "@core/videos/download-button.component"
 export class DashboardComponent {
   private readonly service = inject(VideoService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly thumbnailRequests = new Set<string>();
   private polling?: Subscription;
@@ -134,6 +135,11 @@ export class DashboardComponent {
     if (this.uploading()) return;
     this.uploadOpen.set(false);
     this.selectedFiles.set([]);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { upload: null },
+      queryParamsHandling: "merge",
+    });
   }
 
   selectFile(event: Event): void {

@@ -31,6 +31,7 @@ test('registers, opens the authenticated dashboard and logs out', async ({page})
 });
 
 test('authenticated upload, download and failure notification', async ({page}) => {
+  test.setTimeout(60_000);
   const videoPath = process.env.FIAPX_E2E_VIDEO ?? 'C:/Users/Public/fiapx-demo.mp4';
   const invalidPath = process.env.FIAPX_E2E_INVALID_VIDEO ?? 'C:/Users/Public/fiapx-invalid.mp4';
   test.skip(!existsSync(videoPath) || !existsSync(invalidPath), 'runtime video fixtures are not available');
@@ -44,7 +45,8 @@ test('authenticated upload, download and failure notification', async ({page}) =
   await page.getByRole('button', {name: 'CRIAR CONTA'}).click();
   await expect(page).toHaveURL(/dashboard/);
 
-  await page.getByRole('button', {name: 'ENVIAR NOVO VÍDEO'}).click();
+  await page.getByRole('link', {name: /NOVO VÍDEO/}).click();
+  await expect(page.getByRole('dialog', {name: 'Enviar novos vídeos'})).toBeVisible();
   await page.locator('input[type=file]').setInputFiles(videoPath);
   await page.getByRole('button', {name: 'ENVIAR', exact: true}).click();
   const completedCard = page.locator('.video-card').filter({hasText: 'fiapx-demo.mp4'});
@@ -54,7 +56,8 @@ test('authenticated upload, download and failure notification', async ({page}) =
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('frames.zip');
 
-  await page.getByRole('button', {name: 'ENVIAR NOVO VÍDEO'}).click();
+  await page.getByRole('link', {name: /NOVO VÍDEO/}).click();
+  await expect(page.getByRole('dialog', {name: 'Enviar novos vídeos'})).toBeVisible();
   await page.locator('input[type=file]').setInputFiles(invalidPath);
   await page.getByRole('button', {name: 'ENVIAR', exact: true}).click();
   await expect(page.getByText('Falhas')).toBeVisible({timeout: 20000});

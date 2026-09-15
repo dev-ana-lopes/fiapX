@@ -50,6 +50,10 @@ jobs:
           FIAPX_E2E_VIDEO: /tmp/fiapx-demo.mp4
           FIAPX_E2E_INVALID_VIDEO: /tmp/fiapx-invalid.mp4
         run: npm run e2e
+      - name: Show integration logs
+        if: failure()
+        working-directory: .
+        run: docker compose logs --no-color
       - name: Stop integration stack
         if: always()
         working-directory: .
