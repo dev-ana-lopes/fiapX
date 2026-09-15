@@ -79,7 +79,7 @@ jobs:
             type=raw,value=${{ env.VERSION }}
             type=raw,value=latest
       - name: Build and push API image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: backend
           file: backend/Dockerfile
@@ -89,7 +89,7 @@ jobs:
           provenance: true
           sbom: true
       - name: Build and push frontend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: frontend
           file: frontend/Dockerfile
@@ -98,7 +98,7 @@ jobs:
           provenance: true
           sbom: true
       - name: Build and push video-worker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: backend
           file: backend/Dockerfile
@@ -107,7 +107,7 @@ jobs:
           provenance: true
           sbom: true
       - name: Build and push notification-worker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: backend
           file: backend/Dockerfile
