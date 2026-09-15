@@ -41,6 +41,8 @@ jobs:
         run: |
           docker compose up -d --build api video-worker notification-worker frontend
           docker compose exec -T api alembic upgrade head
+          # Give Uvicorn a moment to finish starting after the stack and migrations are ready.
+          sleep 5
           curl --retry 30 --retry-delay 1 --fail http://localhost:8000/health
           curl --retry 30 --retry-delay 1 --fail http://localhost:4200/
       - name: Run E2E
