@@ -74,9 +74,25 @@ export class DashboardComponent {
   readonly completedPage = signal(1);
   readonly completedPageSize = 10;
   readonly activeVideos = computed(() =>
-    this.videos().filter(
-      (video) => video.status === "PROCESSING" || video.status === "QUEUED",
-    ),
+    this.videos()
+      .filter(
+        (video) =>
+          video.status === "PROCESSING" || video.status === "QUEUED",
+      )
+      .sort((first, second) => {
+        const firstPriority = first.status === "PROCESSING" ? 0 : 1;
+        const secondPriority = second.status === "PROCESSING" ? 0 : 1;
+        if (firstPriority !== secondPriority)
+          return firstPriority - secondPriority;
+
+        const firstTimestamp = new Date(
+          first.startedAt || first.createdAt,
+        ).getTime();
+        const secondTimestamp = new Date(
+          second.startedAt || second.createdAt,
+        ).getTime();
+        return firstTimestamp - secondTimestamp;
+      }),
   );
   readonly queuedVideos = computed(() =>
     this.videos().filter(this.hasStatus("QUEUED")),

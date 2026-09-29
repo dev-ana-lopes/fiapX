@@ -6,6 +6,7 @@ scrape_configs:
       - targets: [api:8000]
     metrics_path: /metrics
   - job_name: rabbitmq
+    metrics_path: /metrics/per-object
     static_configs:
       - targets: [rabbitmq:15692]
   - job_name: fiapx-video-worker
