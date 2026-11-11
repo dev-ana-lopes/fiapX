@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 WORKDIR /app
 RUN pip install --no-cache-dir uv==0.8.14
 COPY pyproject.toml uv.lock ./
@@ -8,7 +8,7 @@ COPY migrations ./migrations
 COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
 
-FROM python:3.14-slim
+FROM python:3.15-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/* \
